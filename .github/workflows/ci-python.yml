@@ -47,8 +47,10 @@ jobs:
             p="${p#"${p%%[![:space:]]*}"}"; p="${p%"${p##*[![:space:]]}"}"   # trim
             [ -n "$p" ] && excl+=( ":(exclude)$p" )
           done <<< "$ignore"
-          git grep -nEI '(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[0-9A-Za-z]{36}|xox[baprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35})' -- . "${excl[@]}"
-          rc=$?
+          # GitHub гоняет шаг под `bash -e`: bare `git grep` с rc=1 (нет совпадений) убил бы
+          # скрипт ДО захвата rc → ложный красный. `|| rc=$?` снимает errexit и ловит код.
+          rc=0
+          git grep -nEI '(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[0-9A-Za-z]{36}|xox[baprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35})' -- . "${excl[@]}" || rc=$?
           # rc: 0=есть совпадение (секрет) → падаем; 1=чисто; иначе=ошибка git grep → fail-closed
           if [ "$rc" -eq 0 ]; then
             echo "::error::похоже на секрет в трекаемых файлах — вынеси в .vault"; exit 1
