@@ -33,6 +33,9 @@ jobs:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      # ретрай: pnpm-воркер изредка падает 'exited with code 1' на self-hosted
+      # (флаки линковка стора) — один повтор гасит транзиент, не маскируя реальный провал.
+      - name: pnpm install (--frozen-lockfile, +1 ретрай на флаки-краш воркера)
+        run: pnpm install --frozen-lockfile || { echo "::warning::pnpm install упал — ретрай"; pnpm install --frozen-lockfile; }
       - run: pnpm typecheck
       - run: pnpm lint
