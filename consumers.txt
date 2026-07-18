@@ -1,0 +1,7 @@
+# Репы-потребители единого CI-гейта. Формат: owner/repo <python|node>
+# bump-stubs.sh обходит этот список и обновляет пин SHA reusable в каждой.
+# Новая репа флота → строка сюда + connect-project (штампует стаб).
+dippstack/ais                        python
+marketspace-ai/marketspace-platform  python
+yan-app/yan-monorepo                 node
+bali-smm/bali-smm-monorepo           node
