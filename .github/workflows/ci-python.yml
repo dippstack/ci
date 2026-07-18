@@ -1,7 +1,7 @@
 name: ci-python
 # Reusable CI-гейт флота для Python/shell репо. ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
-# Зовётся тонким стабом из репы:
-#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-python.yml@v1 } }
+# Зовётся тонким стабом из репы (пин по SHA, не по подвижному тегу — supply-chain):
+#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-python.yml@<sha> } }
 # Шаги гардятся на наличие файла/цели → один рецепт покрывает репы с мелкими отличиями
 # (у одной есть scripts/check-paths.sh, у другой — make verify). Менять гейт — ТОЛЬКО здесь.
 on:
@@ -13,6 +13,9 @@ on:
         required: false
         default: ubuntu-latest
 
+permissions:
+  contents: read   # least privilege: гейту нужен только read исходника
+
 jobs:
   gate:
     runs-on: ${{ inputs.runner }}
@@ -20,19 +23,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # база origin/<base> нужна дифф-проверкам (hardcode-гард)
+          fetch-depth: 0   # база origin/<base> нужна дифф-проверкам (hardcode-гард + ignore)
 
       - name: секрет-скан (regex по трекаемым; без платного action)
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          excl=( ':!.github/**' ':!.githooks/**' )
-          # репа-специфичные исключения ложных срабатываний — построчно в .github/secret-scan-ignore
-          if [ -f .github/secret-scan-ignore ]; then
-            while IFS= read -r p; do [ -n "$p" ] && excl+=( ":!$p" ); done < .github/secret-scan-ignore
+          set -uo pipefail
+          # ВАЖНО: длинная форма :(exclude), НЕ короткая :!  — иначе путь с ведущим '@'
+          # (@infra, @dev — вся раскладка флота) роняет git grep: "Unimplemented pathspec magic '@'".
+          excl=( ':(exclude).github/**' ':(exclude).githooks/**' )
+          # Исключения ложных срабатываний берём из BASE-ветки (доверенной), НЕ из PR-дерева:
+          # иначе тот же PR мог бы дописать исключение и спрятать секрет (само-одобрение).
+          # Вне PR (workflow_dispatch) — из рабочего дерева.
+          ignore=""
+          if [ -n "${BASE_REF:-}" ] && git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
+            ignore="$(git show "origin/$BASE_REF:.github/secret-scan-ignore" 2>/dev/null || true)"
+          elif [ -f .github/secret-scan-ignore ]; then
+            ignore="$(cat .github/secret-scan-ignore)"
           fi
-          if git grep -nEI '(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[0-9A-Za-z]{36}|xox[baprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35})' -- . "${excl[@]}"; then
+          # пустые и whitespace-only строки отбрасываем (кривой pathspec не создаём)
+          while IFS= read -r p; do
+            p="${p#"${p%%[![:space:]]*}"}"; p="${p%"${p##*[![:space:]]}"}"   # trim
+            [ -n "$p" ] && excl+=( ":(exclude)$p" )
+          done <<< "$ignore"
+          git grep -nEI '(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[0-9A-Za-z]{36}|xox[baprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35})' -- . "${excl[@]}"
+          rc=$?
+          # rc: 0=есть совпадение (секрет) → падаем; 1=чисто; иначе=ошибка git grep → fail-closed
+          if [ "$rc" -eq 0 ]; then
             echo "::error::похоже на секрет в трекаемых файлах — вынеси в .vault"; exit 1
+          elif [ "$rc" -eq 1 ]; then
+            echo "секретов не найдено"
+          else
+            echo "::error::git grep вернул rc=$rc (не 0/1) — гейт fail-closed"; exit 1
           fi
-          echo "секретов не найдено"
 
       - name: ruff — синтакс-ошибки Python (E9)
         run: pipx run ruff check --select E9 --output-format=github .
@@ -48,9 +72,11 @@ jobs:
           fi
 
       - name: hardcode-пути (если репа имеет гард scripts/check-paths.sh)
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          if [ -f scripts/check-paths.sh ] && [ -n "${{ github.base_ref }}" ]; then
-            bash scripts/check-paths.sh --new "origin/${{ github.base_ref }}"
+          if [ -f scripts/check-paths.sh ] && [ -n "${BASE_REF:-}" ]; then
+            bash scripts/check-paths.sh --new "origin/$BASE_REF"
           else
             echo "check-paths.sh нет или запуск не из PR — пропуск"
           fi

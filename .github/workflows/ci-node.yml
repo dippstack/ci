@@ -17,6 +17,9 @@ on:
         required: false
         default: "10.0.0"
 
+permissions:
+  contents: read   # least privilege: гейту нужен только read исходника
+
 jobs:
   static:
     runs-on: [self-hosted, home]
