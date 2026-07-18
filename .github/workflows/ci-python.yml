@@ -1,0 +1,64 @@
+name: ci-python
+# Reusable CI-гейт флота для Python/shell репо. ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
+# Зовётся тонким стабом из репы:
+#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-python.yml@v1 } }
+# Шаги гардятся на наличие файла/цели → один рецепт покрывает репы с мелкими отличиями
+# (у одной есть scripts/check-paths.sh, у другой — make verify). Менять гейт — ТОЛЬКО здесь.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "runs-on для гейта (по умолчанию GitHub-hosted ubuntu)"
+        type: string
+        required: false
+        default: ubuntu-latest
+
+jobs:
+  gate:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # база origin/<base> нужна дифф-проверкам (hardcode-гард)
+
+      - name: секрет-скан (regex по трекаемым; без платного action)
+        run: |
+          excl=( ':!.github/**' ':!.githooks/**' )
+          # репа-специфичные исключения ложных срабатываний — построчно в .github/secret-scan-ignore
+          if [ -f .github/secret-scan-ignore ]; then
+            while IFS= read -r p; do [ -n "$p" ] && excl+=( ":!$p" ); done < .github/secret-scan-ignore
+          fi
+          if git grep -nEI '(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[0-9A-Za-z]{36}|xox[baprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35})' -- . "${excl[@]}"; then
+            echo "::error::похоже на секрет в трекаемых файлах — вынеси в .vault"; exit 1
+          fi
+          echo "секретов не найдено"
+
+      - name: ruff — синтакс-ошибки Python (E9)
+        run: pipx run ruff check --select E9 --output-format=github .
+
+      - name: shellcheck — shell-скрипты (severity error; пропуск если их нет)
+        run: |
+          mapfile -t sh < <(git ls-files '*.sh')
+          if [ ${#sh[@]} -gt 0 ]; then
+            sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+            shellcheck -S error "${sh[@]}"
+          else
+            echo "shell-скриптов нет — пропуск"
+          fi
+
+      - name: hardcode-пути (если репа имеет гард scripts/check-paths.sh)
+        run: |
+          if [ -f scripts/check-paths.sh ] && [ -n "${{ github.base_ref }}" ]; then
+            bash scripts/check-paths.sh --new "origin/${{ github.base_ref }}"
+          else
+            echo "check-paths.sh нет или запуск не из PR — пропуск"
+          fi
+
+      - name: proof harness (если репа имеет цель make verify)
+        run: |
+          if [ -f Makefile ] && grep -qE '^verify:' Makefile; then
+            make verify
+          else
+            echo "make verify нет — пропуск"
+          fi

@@ -1,0 +1,38 @@
+name: ci-node
+# Reusable CI-гейт флота для Node/pnpm репо. ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
+# Зовётся тонким стабом из репы:
+#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-node.yml@v1 } }
+# Лёгкий и частый (каждый PR) → на self-hosted home-раннере (не жжём GitHub-hosted минуты).
+# Раннер резолвится в контуре ВЫЗЫВАЮЩЕЙ репы (у yan свой home-runner, у bali свой).
+# Тяжёлое (build/Expo/нативка) тут НЕ гейтим. Менять гейт — ТОЛЬКО здесь.
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        required: false
+        default: "22"
+      pnpm-version:
+        type: string
+        required: false
+        default: "10.0.0"
+
+jobs:
+  static:
+    runs-on: [self-hosted, home]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm ДО setup-node — иначе cache: pnpm не найдёт менеджер.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
