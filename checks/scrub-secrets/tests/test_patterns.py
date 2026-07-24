@@ -47,6 +47,11 @@ CASES = [
     ("token-full", "api_key: A1b2C3d4E5f6", "full", True),
     ("shared-key-full", "shared key: 9f8e7d6c5b4a", "full", True),
     ("password-word", "the password is wrong", "full", False),
+    # prose false positives: `token = <prose>` in research docs is not a secret (entropy/shape gate)
+    ("kv-prose-cyrillic", "token = a11y/perf-ручка", "full", False),   # non-ASCII value
+    ("kv-prose-weak", "token=example", "full", False),                 # dictionary default
+    ("kv-prose-path", "secret = /etc/ssl/cert", "full", False),        # path, not a secret
+    ("kv-prose-short", "pwd = ok", "full", False),                     # too short / trivial
 ]
 
 
