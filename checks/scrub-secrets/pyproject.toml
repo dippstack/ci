@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dippstack-scrub-secrets"
+version = "0.1.0"
+description = "Generic, vendor-neutral, tiered secret scrubber for CI gates and ingestion pipelines"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[project.scripts]
+scrub-secrets = "scrub_secrets.cli:main"
+
+[tool.setuptools]
+packages = ["scrub_secrets"]
+
+[tool.setuptools.package-data]
+scrub_secrets = ["patterns-public.json"]

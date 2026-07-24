@@ -1,0 +1,91 @@
+"""Synthetic secrets only — no real keys, no vendor names. Every pattern gets a
+positive case and a counter-example; tiers get boundary cases (a code-tier gate
+must NOT fire on prose-class `password=`, which is what keeps code repos quiet).
+"""
+import json
+import os
+import tempfile
+
+from scrub_secrets.core import scrub, load_patterns, PUBLIC_PATTERNS_PATH
+
+PATTERNS = load_patterns(PUBLIC_PATTERNS_PATH)
+
+# (label, text, tier, must_redact)
+CASES = [
+    # core — fire at every tier
+    ("pem", "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----", "core", True),
+    ("pem-prose", "generate a private key with openssl", "core", False),
+    ("api-uuid", "api-12345678-1234-1234-1234-1234567890ab", "core", True),
+    ("api-word", "the api-gateway service", "core", False),
+    ("sk-ant", "sk-ant-abcdefghij0123456789KLMN", "core", True),
+    ("ghp", "ghp_" + "a" * 36, "core", True),
+    ("aws", "AKIAABCDEFGHIJKLMNOP", "core", True),
+    ("aws-word", "AKIA is a prefix", "core", False),
+    ("jwt", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY.SflKxwRJSMeKKF2QT4", "core", True),
+    ("bearer", "Authorization: Bearer abcdefghij0123456789KLMNOP", "core", True),
+
+    # dsn-creds — the fix that started this: creds required, placeholder ignored
+    ("dsn-creds-code", "postgres://user:s3cretPW@db.host:5432/app", "core+dsn-creds", True),
+    ("dsn-bare", "postgres://localhost:5432/app", "core+dsn-creds", False),
+    ("dsn-ellipsis", "connect with `postgres://…` for a shared server", "core+dsn-creds", False),
+    ("dsn-not-in-core", "postgres://user:s3cretPW@db.host:5432/app", "core", False),  # core tier ignores DSN
+
+    # prose — only at full; a code-tier gate must stay quiet on these
+    ("password-full", "password=Hunter2xyz", "full", True),
+    ("password-code-quiet", "password=Hunter2xyz", "core+dsn-creds", False),  # KEY: no FP on code repos
+    ("token-full", "api_key: A1b2C3d4E5f6", "full", True),
+    ("shared-key-full", "shared key: 9f8e7d6c5b4a", "full", True),
+    ("password-word", "the password is wrong", "full", False),
+]
+
+
+def test_tiered_patterns():
+    for label, text, tier, must in CASES:
+        out, n = scrub(text, PATTERNS, tier)
+        if must:
+            assert n >= 1 and "REDACTED" in out, f"{label}@{tier}: expected redaction, got {out!r}"
+        else:
+            assert n == 0, f"{label}@{tier}: unexpected redaction, got {out!r}"
+
+
+def test_tier_is_cumulative():
+    dsn = "postgres://u:p4ss@h/db"
+    assert scrub(dsn, PATTERNS, "core")[1] == 0
+    assert scrub(dsn, PATTERNS, "core+dsn-creds")[1] == 1
+    assert scrub(dsn, PATTERNS, "full")[1] == 1
+
+
+def test_idempotent():
+    text = "password=Hunter2xyz and postgres://u:p4ss@h/db"
+    once, _ = scrub(text, PATTERNS, "full")
+    twice, n2 = scrub(once, PATTERNS, "full")
+    assert once == twice and n2 == 0
+
+
+def test_no_value_leak():
+    out, _ = scrub("password=SuperSecret9", PATTERNS, "full")
+    assert "SuperSecret9" not in out
+
+
+def test_private_overlay():
+    # overlay demonstrates vendor/private patterns loaded at runtime — neutral synthetic here.
+    spec = {"patterns": [
+        {"id": "vendor-x", "class": "core", "regex": r"\bZZ-[0-9]{6}\b", "replacement": "[REDACTED-VENDOR]"},
+        {"id": "custom-label", "class": "prose", "context": True, "flags": "i",
+         "regex": r"(customlabel\s*[:=]\s*)(\S{6,})", "replacement": r"\1[REDACTED]"},
+    ]}
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(spec, fh)
+        path = fh.name
+    try:
+        patterns = PATTERNS + load_patterns(path)
+        out, n = scrub("code ZZ-123456 customlabel: Qwerty12", patterns, "full")
+        assert "ZZ-123456" not in out and n >= 2
+    finally:
+        os.unlink(path)
+
+
+def test_bad_tier_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        scrub("x", PATTERNS, "ful")
