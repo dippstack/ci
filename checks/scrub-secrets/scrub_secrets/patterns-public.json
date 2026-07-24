@@ -12,7 +12,7 @@
     { "id": "jwt", "class": "core", "regex": "\\beyJ[A-Za-z0-9_\\-]{8,}\\.[A-Za-z0-9_\\-]{8,}\\.[A-Za-z0-9_\\-]{8,}", "replacement": "[REDACTED-JWT]" },
     { "id": "bearer", "class": "core", "flags": "i", "regex": "\\bbearer\\s+[A-Za-z0-9._\\-]{20,}", "replacement": "Bearer [REDACTED-TOKEN]" },
 
-    { "id": "dsn-creds", "class": "dsn-creds", "flags": "i", "regex": "\\b(?:postgres(?:ql)?|mysql|mongodb(?:\\+srv)?|redis|amqp)://[^\\s:/@]+:[^\\s@]+@[^\\s\\)\\]\"'<>`]+", "replacement": "[REDACTED-DSN]" },
+    { "id": "dsn-creds", "class": "dsn-creds", "flags": "i", "regex": "\\b(?:postgres(?:ql)?|mysql|mongodb(?:\\+srv)?|redis|amqp)://[^\\s:/@$]+:[^\\s@$]+@(?!(?:localhost|127\\.0\\.0\\.1|\\[::1\\])[:/])[^\\s\\)\\]\"'<>`]+", "replacement": "[REDACTED-DSN]" },
 
     { "id": "kv-secret", "class": "prose", "flags": "i", "regex": "\\b(password|passwd|pwd|secret|api[_-]?key|token)\\b(\\s*[:=]\\s*)(?!\\[REDACTED)([^\\s,;`\"']+)", "replacement": "\\1\\2[REDACTED]" },
     { "id": "shared-key", "class": "prose", "flags": "i", "context": true, "regex": "(\\bshared\\s*key\\s*[:=]\\s*)([^\\s,;`\"']{6,})", "replacement": "\\1[REDACTED]" }

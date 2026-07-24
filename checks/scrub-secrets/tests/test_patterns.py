@@ -29,6 +29,12 @@ CASES = [
     ("dsn-bare", "postgres://localhost:5432/app", "core+dsn-creds", False),
     ("dsn-ellipsis", "connect with `postgres://…` for a shared server", "core+dsn-creds", False),
     ("dsn-not-in-core", "postgres://user:s3cretPW@db.host:5432/app", "core", False),  # core tier ignores DSN
+    # pilot-discovered false positives: env-interpolated password / loopback test DBs must NOT fire
+    ("dsn-env-pass", "DB_URL=postgres://postgres:${PG_PASS}@localhost:${PG_PORT}/gbrain", "core+dsn-creds", False),
+    ("dsn-env-esc", "DATABASE_URL=postgresql://postgres:${esc}@postgres:5432/postgres", "core+dsn-creds", False),
+    ("dsn-loopback", "DATABASE_URL: postgres://yan:yan@127.0.0.1:55432/yan", "core+dsn-creds", False),
+    ("dsn-env-user", "postgres://${DB_USER}:x@remote:5432/db", "core+dsn-creds", False),
+    ("dsn-localhostdb-real", "postgres://u:realpw@localhostdb.example:5432/x", "core+dsn-creds", True),  # host merely starts with 'localhost'
 
     # prose — only at full; a code-tier gate must stay quiet on these
     ("password-full", "password=Hunter2xyz", "full", True),
