@@ -26,6 +26,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # база origin/<base> нужна anti-self-approval ignore в скраб-шаге
+
+      # Секрет-скан единым движком (тот же, что у python/vault-репо) — закрываем дыру:
+      # Node-репо раньше не гейтились на секреты вообще. tier=core+dsn-creds (код).
+      # Нужен python3 на self-hosted home-раннере. Нет секрета → мгновенно дальше.
+      - name: секрет-скан (единый движок, tier=core+dsn-creds)
+        uses: dippstack/ci/checks/scrub-secrets@main
+        with:
+          tier: core+dsn-creds
+          base_ref: ${{ github.base_ref }}
 
       # pnpm ДО setup-node — иначе cache: pnpm не найдёт менеджер.
       - uses: pnpm/action-setup@v4
