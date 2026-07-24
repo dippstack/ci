@@ -14,7 +14,7 @@
 
     { "id": "dsn-creds", "class": "dsn-creds", "flags": "i", "regex": "\\b(?:postgres(?:ql)?|mysql|mongodb(?:\\+srv)?|redis|amqp)://(?P<u>[^\\s:/@$]+):(?P<p>[^\\s@$]+)@(?!(?:localhost|127\\.0\\.0\\.1|\\[::1\\])[:/])[^\\s\\)\\]\"'<>`]+", "replacement": "[REDACTED-DSN]", "weak_guard": { "secret": "p", "compare": "u" } },
 
-    { "id": "kv-secret", "class": "prose", "flags": "i", "regex": "\\b(password|passwd|pwd|secret|api[_-]?key|token)\\b(\\s*[:=]\\s*)(?!\\[REDACTED)([^\\s,;`\"']+)", "replacement": "\\1\\2[REDACTED]" },
+    { "id": "kv-secret", "class": "prose", "flags": "i", "regex": "\\b(password|passwd|pwd|secret|api[_-]?key|token)\\b(\\s*[:=]\\s*)(?!\\[REDACTED)([^\\s,;`\"']+)", "replacement": "\\1\\2[REDACTED]", "guard_group": 3 },
     { "id": "shared-key", "class": "prose", "flags": "i", "context": true, "regex": "(\\bshared\\s*key\\s*[:=]\\s*)([^\\s,;`\"']{6,})", "replacement": "\\1[REDACTED]" }
   ]
 }

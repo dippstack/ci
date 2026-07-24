@@ -67,7 +67,10 @@ def load_patterns(path):
             "class": cls,
             "rx": rx,
             "replacement": s["replacement"],
-            "context": bool(s.get("context")),
+            # guard_group: index/name of the capture group holding the secret VALUE; the
+            # match is kept only if that value passes _is_real_secret (entropy/shape gate).
+            # `context: true` is the legacy spelling of guard_group: 2.
+            "guard_group": s.get("guard_group", 2 if s.get("context") else None),
             # weak_guard: {"secret": <group>, "compare": <group?>} — skip the match when the
             # captured credential is a well-known default or equals another group (user==pass).
             "weak_guard": s.get("weak_guard"),
@@ -75,12 +78,20 @@ def load_patterns(path):
     return out
 
 
-def _looks_secret(val):
+def _is_real_secret(val):
+    """Does a captured label=value / shared-key value actually look like a secret?
+    Prose vaults are full of sentences like `token = a11y/perf-ручка` — a real
+    secret is ASCII, not a dictionary default, has some entropy, and isn't a
+    path / domain / email. This is the (layerable) entropy/shape gate."""
+    if not val.isascii():                                  # cyrillic / prose word
+        return False
     if "@" in val or "://" in val or val.startswith("/") or val.startswith("http"):
         return False
-    if re.search(r"\.[a-z]{2,}\b", val, re.I):  # domain / filename
+    if re.search(r"\.[a-z]{2,}\b", val, re.I):             # domain / filename
         return False
-    if len(val) < 6 or len(val) > 64:
+    if val.lower() in WEAK_SECRETS:                        # example / changeme / none
+        return False
+    if len(val) < 6 or len(val) > 128:
         return False
     return bool(_SECRETLIKE.search(val))
 
@@ -131,14 +142,14 @@ def scrub(text, patterns, tier="core"):
     for p in patterns:
         if p["class"] not in classes:
             continue
-        ctx = p["context"]
+        gg = p.get("guard_group")
         wg = p.get("weak_guard")
         repl_str = p["replacement"]
 
-        def repl(m, ctx=ctx, wg=wg, repl_str=repl_str):
+        def repl(m, gg=gg, wg=wg, repl_str=repl_str):
             if _line_allows(text, m.start()):
                 return m.group(0)
-            if ctx and not _looks_secret(m.group(2)):
+            if gg is not None and not _is_real_secret(m.group(gg)):
                 return m.group(0)
             if wg:
                 secret = m.group(wg["secret"])
