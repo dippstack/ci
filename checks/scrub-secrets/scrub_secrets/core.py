@@ -68,6 +68,9 @@ def load_patterns(path):
             "rx": rx,
             "replacement": s["replacement"],
             "context": bool(s.get("context")),
+            # weak_guard: {"secret": <group>, "compare": <group?>} — skip the match when the
+            # captured credential is a well-known default or equals another group (user==pass).
+            "weak_guard": s.get("weak_guard"),
         })
     return out
 
@@ -82,20 +85,45 @@ def _looks_secret(val):
     return bool(_SECRETLIKE.search(val))
 
 
-def _apply_context(rx, replacement, text, counter):
-    def repl(m):
-        if _looks_secret(m.group(2)):
-            counter[0] += 1
-            return m.expand(replacement)
-        return m.group(0)
-    return rx.sub(repl, text)
+# Well-known default / dummy credentials — never a real leaked secret. This is a
+# CURATED layer; an entropy layer can be added on top later without touching callers.
+WEAK_SECRETS = {
+    "postgres", "postgresql", "mysql", "mariadb", "mongo", "mongodb", "redis", "rabbitmq",
+    "root", "admin", "administrator", "user", "username", "guest", "public", "anonymous",
+    "password", "passwd", "pass", "pwd", "secret", "changeme", "change-me", "changethis",
+    "example", "test", "testing", "tests", "demo", "sample", "dev", "develop", "development",
+    "local", "localhost", "none", "null", "empty", "default", "temp", "temporary",
+    "123456", "12345678", "123456789", "qwerty", "letmein", "abc123", "password123",
+}
+
+# Inline allow-marker: a line containing this token opts its matches out (deliberate
+# fixtures / canaries). Self-documenting, visible in the diff, review-gated — replaces
+# the central ignore-list, scales per-line without a growing file.
+ALLOW_MARKER = "scrub:allow"
+
+
+def _is_weak_cred(secret, compare=None):
+    if compare is not None and secret == compare:   # user == pass
+        return True
+    return secret.lower() in WEAK_SECRETS
+
+
+def _line_allows(text, pos):
+    ls = text.rfind("\n", 0, pos) + 1
+    le = text.find("\n", pos)
+    le = len(text) if le < 0 else le
+    return ALLOW_MARKER in text[ls:le]
 
 
 PUBLIC_PATTERNS_PATH = os.path.join(os.path.dirname(__file__), "patterns-public.json")
 
 
 def scrub(text, patterns, tier="core"):
-    """Apply patterns whose class is enabled by `tier`. Returns (text, count)."""
+    """Apply patterns whose class is enabled by `tier`. Returns (text, count).
+
+    Per-match guards (uniform for every pattern): an inline `scrub:allow` marker on
+    the match's line, a `context` free-text secret-likeness check, and a `weak_guard`
+    default/dummy-credential skip. A match survives all guards -> redacted + counted."""
     if tier not in TIERS:
         raise ValueError(f"unknown tier {tier!r}; valid: {', '.join(TIERS)}")
     classes = TIERS[tier]
@@ -103,11 +131,24 @@ def scrub(text, patterns, tier="core"):
     for p in patterns:
         if p["class"] not in classes:
             continue
-        if p["context"]:
-            text = _apply_context(p["rx"], p["replacement"], text, counter)
-        else:
-            text, n = p["rx"].subn(p["replacement"], text)
-            counter[0] += n
+        ctx = p["context"]
+        wg = p.get("weak_guard")
+        repl_str = p["replacement"]
+
+        def repl(m, ctx=ctx, wg=wg, repl_str=repl_str):
+            if _line_allows(text, m.start()):
+                return m.group(0)
+            if ctx and not _looks_secret(m.group(2)):
+                return m.group(0)
+            if wg:
+                secret = m.group(wg["secret"])
+                compare = m.group(wg["compare"]) if wg.get("compare") else None
+                if _is_weak_cred(secret, compare):
+                    return m.group(0)
+            counter[0] += 1
+            return m.expand(repl_str)
+
+        text = p["rx"].sub(repl, text)
     return text, counter[0]
 
 

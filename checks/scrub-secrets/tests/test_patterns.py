@@ -35,6 +35,11 @@ CASES = [
     ("dsn-loopback", "DATABASE_URL: postgres://yan:yan@127.0.0.1:55432/yan", "core+dsn-creds", False),
     ("dsn-env-user", "postgres://${DB_USER}:x@remote:5432/db", "core+dsn-creds", False),
     ("dsn-localhostdb-real", "postgres://u:realpw@localhostdb.example:5432/x", "core+dsn-creds", True),  # host merely starts with 'localhost'
+    # weak/default creds are not real secrets (curated triviality layer) — skipped fleet-wide
+    ("dsn-default-docker", "postgresql://postgres:postgres@postgres:5432/postgres", "core+dsn-creds", False),
+    ("dsn-user-eq-pass", "postgres://svc:svc@prod.example.com:5432/app", "core+dsn-creds", False),
+    ("dsn-weak-changeme", "postgres://app:changeme@prod.example.com/db", "core+dsn-creds", False),
+    ("dsn-real-highentropy", "postgres://app:Xk9nOtweak12aB@prod.example.com/db", "core+dsn-creds", True),
 
     # prose — only at full; a code-tier gate must stay quiet on these
     ("password-full", "password=Hunter2xyz", "full", True),
@@ -89,6 +94,17 @@ def test_private_overlay():
         assert "ZZ-123456" not in out and n >= 2
     finally:
         os.unlink(path)
+
+
+def test_inline_allow_marker():
+    # a deliberate fixture/canary on a line with the marker is skipped; without it, caught.
+    got = scrub("key AKIAABCDEFGHIJKLMNOP  # scrub:allow", PATTERNS, "core")
+    assert got[1] == 0, "marked line must be skipped"
+    unmarked = scrub("key AKIAABCDEFGHIJKLMNOP", PATTERNS, "core")
+    assert unmarked[1] == 1, "unmarked line must be caught"
+    # marker only affects its own line
+    two = "AKIAABCDEFGHIJKLMNOP  # scrub:allow\nAKIAZZZZZZZZZZZZZZZZ"
+    assert scrub(two, PATTERNS, "core")[1] == 1, "marker must not leak to other lines"
 
 
 def test_bad_tier_raises():

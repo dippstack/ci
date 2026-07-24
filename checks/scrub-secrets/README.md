@@ -48,6 +48,23 @@ Only counts and file paths are printed — never secret values.
 pip install "git+https://github.com/dippstack/ci@ci-v0.1.0#subdirectory=checks/scrub-secrets"
 ```
 
+## Not-a-secret handling (no growing allow-list)
+
+Two general layers keep false positives out without a per-finding list:
+
+- **Default/dummy credentials auto-skip.** A DSN whose password is a well-known
+  default (`postgres`, `root`, `changeme`, …) or equals the username
+  (`user:user@`) is not a real secret and is skipped fleet-wide. Curated now; an
+  entropy layer can be added on top later without touching callers.
+- **Inline `scrub:allow` marker.** A deliberate fixture or canary (a fake secret
+  that exists to test the scrubber) opts its own line out with a trailing
+  `scrub:allow` comment. It lives with the code, shows up in the diff, and is
+  review-gated — no central list to grow, scales per line.
+
+```bash
+printf "canary sk-ABCDEF...\n"   # scrub:allow  — deliberate test key
+```
+
 ## Maintenance
 
 Any pattern change ships with a positive test and a counter-example
