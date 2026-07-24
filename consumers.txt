@@ -1,7 +1,11 @@
-# Репы-потребители единого CI-гейта. Формат: owner/repo <python|node>
+# Репы-потребители единого CI-гейта. Формат: owner/repo <python|node|vault>
+# vault = проза-волты (knowledge-корпус брейнов), гейт ci-vault.yml на tier=full.
 # bump-stubs.sh обходит этот список и обновляет пин SHA reusable в каждой.
 # Новая репа флота → строка сюда + connect-project (штампует стаб).
 dippstack/ais                        python
 marketspace-ai/marketspace-platform  python
 yan-app/yan-monorepo                 node
 bali-smm/bali-smm-monorepo           node
+dippstack/ais-vault                  vault
+dippstack/ais-render-vault           vault
+dippstack/agent-stack-vault          vault
