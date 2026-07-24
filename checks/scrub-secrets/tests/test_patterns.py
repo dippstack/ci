@@ -34,12 +34,14 @@ CASES = [
     ("dsn-env-esc", "DATABASE_URL=postgresql://postgres:${esc}@postgres:5432/postgres", "core+dsn-creds", False),
     ("dsn-loopback", "DATABASE_URL: postgres://yan:yan@127.0.0.1:55432/yan", "core+dsn-creds", False),
     ("dsn-env-user", "postgres://${DB_USER}:x@remote:5432/db", "core+dsn-creds", False),
-    ("dsn-localhostdb-real", "postgres://u:realpw@localhostdb.example:5432/x", "core+dsn-creds", True),  # host merely starts with 'localhost'
+    ("dsn-localhostdb-real", "postgres://u:R3alPw99xz@localhostdb.example:5432/x", "core+dsn-creds", True),  # host merely starts with 'localhost'
     # weak/default creds are not real secrets (curated triviality layer) — skipped fleet-wide
     ("dsn-default-docker", "postgresql://postgres:postgres@postgres:5432/postgres", "core+dsn-creds", False),
     ("dsn-user-eq-pass", "postgres://svc:svc@prod.example.com:5432/app", "core+dsn-creds", False),
     ("dsn-weak-changeme", "postgres://app:changeme@prod.example.com/db", "core+dsn-creds", False),
     ("dsn-real-highentropy", "postgres://app:Xk9nOtweak12aB@prod.example.com/db", "core+dsn-creds", True),
+    ("dsn-test-fixture", "postgres://u:p@h/db", "core+dsn-creds", False),
+    ("dsn-short-pass", "postgres://user:abc@host/db", "core+dsn-creds", False),
 
     # prose — only at full; a code-tier gate must stay quiet on these
     ("password-full", "password=Hunter2xyz", "full", True),
@@ -65,14 +67,14 @@ def test_tiered_patterns():
 
 
 def test_tier_is_cumulative():
-    dsn = "postgres://u:p4ss@h/db"
+    dsn = "postgres://u:p4ssW0rd9@h/db"
     assert scrub(dsn, PATTERNS, "core")[1] == 0
     assert scrub(dsn, PATTERNS, "core+dsn-creds")[1] == 1
     assert scrub(dsn, PATTERNS, "full")[1] == 1
 
 
 def test_idempotent():
-    text = "password=Hunter2xyz and postgres://u:p4ss@h/db"
+    text = "password=Hunter2xyz and postgres://u:p4ssW0rd9@h/db"
     once, _ = scrub(text, PATTERNS, "full")
     twice, n2 = scrub(once, PATTERNS, "full")
     assert once == twice and n2 == 0
