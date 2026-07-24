@@ -154,7 +154,9 @@ def scrub(text, patterns, tier="core"):
             if wg:
                 secret = m.group(wg["secret"])
                 compare = m.group(wg["compare"]) if wg.get("compare") else None
-                if _is_weak_cred(secret, compare):
+                # skip default/dummy creds AND anything that doesn't look like a real
+                # secret (placeholder test DSNs like u:p@h, short/low-entropy passwords).
+                if _is_weak_cred(secret, compare) or not _is_real_secret(secret):
                     return m.group(0)
             counter[0] += 1
             return m.expand(repl_str)
