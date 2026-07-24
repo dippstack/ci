@@ -39,14 +39,24 @@ jobs:
       - name: ruff — синтакс-ошибки Python (E9)
         run: pipx run ruff check --select E9 --output-format=github .
 
-      - name: shellcheck — shell-скрипты (severity error; пропуск если их нет)
+      - name: shellcheck — shell-скрипты (severity error; zsh-скрипты пропускаем)
         run: |
-          mapfile -t sh < <(git ls-files '*.sh')
+          mapfile -t all < <(git ls-files '*.sh')
+          sh=()
+          for f in "${all[@]}"; do
+            # shellcheck умеет только sh/bash/dash/ksh; zsh-шебанг → SC1071 (error) и
+            # роняет весь гейт. zsh-скрипты линтить нечем — пропускаем их явно.
+            if head -1 "$f" | grep -qE '^#!.*[[:space:]/]zsh([[:space:]]|$)'; then
+              echo "skip (zsh, shellcheck не поддерживает): $f"
+            else
+              sh+=("$f")
+            fi
+          done
           if [ ${#sh[@]} -gt 0 ]; then
             sudo apt-get update -q && sudo apt-get install -y -q shellcheck
             shellcheck -S error "${sh[@]}"
           else
-            echo "shell-скриптов нет — пропуск"
+            echo "shell-скриптов для shellcheck нет — пропуск"
           fi
 
       - name: hardcode-пути (если репа имеет гард scripts/check-paths.sh)
