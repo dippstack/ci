@@ -22,7 +22,9 @@ jobs:
 
       - name: приватные паттерн-файлы не должны жить в публичном ci
         run: |
-          bad="$(git ls-files '*patterns-private*' '*scrub-extra*' '*-secret*.json' || true)"
+          # Якорим на ИМЯ ФАЙЛА (basename), не на путь: папка scrub-secrets содержит '-secret',
+          # path-glob '*-secret*.json' ложно ловил бы наш же patterns-public.json.
+          bad="$(git ls-files | grep -E '(^|/)(scrub-extra[^/]*|patterns-private[^/]*|[^/]*-secret[^/]*)\.(json|ya?ml)$' || true)"
           if [ -n "$bad" ]; then
             echo "::error::приватные паттерн-файлы в публичном репо — им место в Vault проекта:"; echo "$bad"; exit 1
           fi
