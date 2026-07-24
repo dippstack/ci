@@ -1,0 +1,43 @@
+name: ci-vault
+# Reusable CI-гейт для ПРОЗА-волтов (knowledge-vaults: md-корпус брейнов). ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
+# Отличие от ci-python: волту не нужны ruff/shellcheck/pnpm — только скраб секретов по прозе,
+# на ПОЛНОМ тире (core+dsn-creds+prose: password=/shared-key тоже). Вендор-специфику волт
+# подтягивает приватным оверлеем из своего Vault (вход patterns). Зовётся тонким стабом:
+#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-vault.yml@<sha>, with: { patterns: .config/scrub-extra.json } } }
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        required: false
+        default: ubuntu-latest
+      patterns:
+        description: "Путь к приватному оверлею паттернов в Vault волта (вендор/язык). Опционально."
+        type: string
+        required: false
+        default: ".config/scrub-extra.json"
+      paths:
+        description: "Pathspec прозы для скана."
+        type: string
+        required: false
+        default: "*.md *.txt *.rst *.jsonl *.eml *.json *.yaml *.yml *.csv *.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # база origin/<base> нужна anti-self-approval ignore
+
+      - name: скраб-секретов прозы (единый движок, tier=full)
+        uses: dippstack/ci/checks/scrub-secrets@main
+        with:
+          tier: full
+          base_ref: ${{ github.base_ref }}
+          paths: ${{ inputs.paths }}
+          patterns: ${{ inputs.patterns }}

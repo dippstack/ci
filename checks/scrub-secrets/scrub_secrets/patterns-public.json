@@ -1,0 +1,20 @@
+{
+  "_comment": "Generic, vendor-neutral secret patterns. PUBLIC — no vendor names, no infra topology, no non-English labels. Vendor/project patterns live in a private overlay in the project Vault, passed via --patterns. class: core (unambiguous tokens, all tiers) | dsn-creds (DSN with credentials, core+dsn-creds and full) | prose (label=value, full only — noisy on code repos).",
+  "patterns": [
+    { "id": "pem-private-key", "class": "core", "regex": "-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----", "replacement": "[REDACTED-PRIVATE-KEY]" },
+    { "id": "api-uuid", "class": "core", "flags": "i", "regex": "\\bapi-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b", "replacement": "[REDACTED-API-KEY]" },
+    { "id": "sk-ant", "class": "core", "regex": "\\bsk-ant-[A-Za-z0-9_\\-]{20,}", "replacement": "[REDACTED-TOKEN]" },
+    { "id": "sk-generic", "class": "core", "regex": "\\bsk-[A-Za-z0-9_\\-]{20,}", "replacement": "[REDACTED-TOKEN]" },
+    { "id": "github-pat", "class": "core", "regex": "\\bghp_[A-Za-z0-9]{30,}", "replacement": "[REDACTED-TOKEN]" },
+    { "id": "slack-token", "class": "core", "regex": "\\bxox[baprs]-[A-Za-z0-9\\-]{10,}", "replacement": "[REDACTED-TOKEN]" },
+    { "id": "aws-akia", "class": "core", "regex": "\\bAKIA[0-9A-Z]{16}\\b", "replacement": "[REDACTED-AWS-KEY]" },
+    { "id": "google-api", "class": "core", "regex": "\\bAIza[0-9A-Za-z_\\-]{30,}", "replacement": "[REDACTED-TOKEN]" },
+    { "id": "jwt", "class": "core", "regex": "\\beyJ[A-Za-z0-9_\\-]{8,}\\.[A-Za-z0-9_\\-]{8,}\\.[A-Za-z0-9_\\-]{8,}", "replacement": "[REDACTED-JWT]" },
+    { "id": "bearer", "class": "core", "flags": "i", "regex": "\\bbearer\\s+[A-Za-z0-9._\\-]{20,}", "replacement": "Bearer [REDACTED-TOKEN]" },
+
+    { "id": "dsn-creds", "class": "dsn-creds", "flags": "i", "regex": "\\b(?:postgres(?:ql)?|mysql|mongodb(?:\\+srv)?|redis|amqp)://[^\\s:/@]+:[^\\s@]+@[^\\s\\)\\]\"'<>`]+", "replacement": "[REDACTED-DSN]" },
+
+    { "id": "kv-secret", "class": "prose", "flags": "i", "regex": "\\b(password|passwd|pwd|secret|api[_-]?key|token)\\b(\\s*[:=]\\s*)(?!\\[REDACTED)([^\\s,;`\"']+)", "replacement": "\\1\\2[REDACTED]" },
+    { "id": "shared-key", "class": "prose", "flags": "i", "context": true, "regex": "(\\bshared\\s*key\\s*[:=]\\s*)([^\\s,;`\"']{6,})", "replacement": "\\1[REDACTED]" }
+  ]
+}

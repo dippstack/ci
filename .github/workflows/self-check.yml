@@ -1,0 +1,67 @@
+name: self-check
+# Механический leak-барьер ПУБЛИЧНОГО репо dippstack/ci (не дисциплина — проверка).
+# Гоняется на PR в сам ci. Держит границу public/private для checks/scrub-secrets:
+#  1) приватные паттерн-файлы НИКОГДА не коммитятся сюда (имя-барьер);
+#  2) вендор-теллы не протекают в публичный код/паттерны;
+#  3) patterns-public.json парсится; тесты движка зелёные до тега.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: приватные паттерн-файлы не должны жить в публичном ci
+        run: |
+          # Якорим на ИМЯ ФАЙЛА (basename), не на путь: папка scrub-secrets содержит '-secret',
+          # path-glob '*-secret*.json' ложно ловил бы наш же patterns-public.json.
+          bad="$(git ls-files | grep -E '(^|/)(scrub-extra[^/]*|patterns-private[^/]*|[^/]*-secret[^/]*)\.(json|ya?ml)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::приватные паттерн-файлы в публичном репо — им место в Vault проекта:"; echo "$bad"; exit 1
+          fi
+          echo "приватных паттерн-файлов нет"
+
+      - name: вендор-теллы не должны протекать в публичный репо
+        run: |
+          # Эти имена = приватное IP (кто с кем интегрируется). Место — приватный оверлей в Vault.
+          rc=0
+          git grep -niE '(wildberries|wbaas|x_wbaas|diadoc|kontur)' -- . ':(exclude).github/workflows/self-check.yml' || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::вендор-имя в публичном репо — вынеси паттерн в приватный оверлей (Vault)"; exit 1
+          elif [ "$rc" -eq 1 ]; then
+            echo "вендор-теллов не найдено"
+          else
+            echo "::error::git grep rc=$rc — fail-closed"; exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: patterns-public.json парсится и непуст
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("checks/scrub-secrets/scrub_secrets/patterns-public.json"))
+          pats = d.get("patterns", [])
+          assert pats, "patterns-public.json пуст"
+          for p in pats:
+              assert {"id","regex","replacement"} <= set(p), f"неполный паттерн: {p.get('id')}"
+              assert p.get("class","core") in {"core","dsn-creds","prose"}, f"класс: {p.get('id')}"
+          print(f"OK: {len(pats)} паттернов, схема валидна")
+          PY
+
+      - name: тесты движка (контр-примеры на дрейф регекспа)
+        working-directory: checks/scrub-secrets
+        run: |
+          python3 -m pip install -q -e . pytest
+          python3 -m pytest -q tests/

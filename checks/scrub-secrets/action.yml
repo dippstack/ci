@@ -1,0 +1,80 @@
+name: "scrub-secrets"
+description: "Fail-closed secret-scan gate. One canonical engine; tier picks pattern breadth."
+inputs:
+  tier:
+    description: "core | core+dsn-creds | full. Code repos: core+dsn-creds. Prose/vaults: full."
+    required: false
+    default: "core+dsn-creds"
+  base_ref:
+    description: "Base branch for anti-self-approval ignore (github.base_ref on PRs). Empty outside a PR."
+    required: false
+    default: ""
+  paths:
+    description: "Space-separated pathspec of files to scan."
+    required: false
+    default: "*.md *.txt *.rst *.jsonl *.eml *.json *.yaml *.yml *.csv *.toml *.ini *.cfg *.sh *.py *.js *.ts"
+  patterns:
+    description: "Optional path (in the caller repo) to a PRIVATE overlay JSON (project Vault)."
+    required: false
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - name: scrub-secrets (fail-closed, tier=${{ inputs.tier }})
+      shell: bash
+      env:
+        TIER: ${{ inputs.tier }}
+        BASE_REF: ${{ inputs.base_ref }}
+        SCAN_PATHS: ${{ inputs.paths }}
+        OVERLAY: ${{ inputs.patterns }}
+        PYTHONPATH: ${{ github.action_path }}
+      run: |
+        set -uo pipefail
+        # deny-list: secret files never belong in a repo
+        bad="$(git ls-files '*.pem' '*.key' '*.p12' '*.pfx' '.env' '**/.env' || true)"
+        if [ -n "$bad" ]; then echo "::error::forbidden secret files:"; echo "$bad"; exit 1; fi
+
+        # anti-self-approval: false-positive ignores come from the BASE branch (trusted),
+        # not the PR tree — else a PR could add its own ignore to hide a secret.
+        # Long-form :(exclude) so paths with a leading '@' don't break the pathspec.
+        excl=( ':(exclude).github/**' ':(exclude).githooks/**' )
+        ignore=""
+        if [ -n "${BASE_REF}" ]; then
+          # PR-контекст: ignore берём ТОЛЬКО из доверенной base-ветки, никогда из PR-дерева
+          # (иначе PR дописал бы ignore и спрятал секрет). base недоступен → fail-closed.
+          if git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
+            ignore="$(git show "origin/$BASE_REF:.github/secret-scan-ignore" 2>/dev/null || true)"
+          else
+            echo "::error::base '$BASE_REF' недоступен (нужен fetch-depth:0) — fail-closed"; exit 1
+          fi
+        elif [ -f .github/secret-scan-ignore ]; then
+          # Вне PR (workflow_dispatch): доверенного base нет, берём из рабочего дерева.
+          ignore="$(cat .github/secret-scan-ignore)"
+        fi
+        while IFS= read -r p; do
+          p="${p#"${p%%[![:space:]]*}"}"; p="${p%"${p##*[![:space:]]}"}"   # trim
+          case "$p" in ''|\#*) continue;; esac
+          excl+=( ":(exclude)$p" )
+        done <<< "$ignore"
+
+        ov=()
+        if [ -n "${OVERLAY}" ] && [ -f "${OVERLAY}" ]; then ov=(--patterns "${OVERLAY}"); fi
+
+        # collect tracked files, NUL-safe. $SCAN_PATHS НЕ в кавычках намеренно — это набор
+        # глобов-пафспеков, нужен word-split ('*.md' '*.txt' …); кавычки склеили бы в один.
+        mapfile -d '' -t files < <(git ls-files -z $SCAN_PATHS "${excl[@]}")
+        if [ ${#files[@]} -eq 0 ]; then
+          # не молчим: пустой набор может быть опечаткой в paths. Не fail (свежая репа
+          # законно может не иметь совпадений), но громко предупреждаем.
+          echo "::warning::pathspec matched no files (tier=$TIER) — проверь input paths"; exit 0
+        fi
+
+        python3 -m scrub_secrets.cli --tier "$TIER" "${ov[@]}" --check "${files[@]}"
+        rc=$?
+        if [ "$rc" -eq 0 ]; then
+          echo "секретов не найдено (tier=$TIER)"
+        elif [ "$rc" -eq 2 ]; then
+          echo "::error::похоже на секрет в трекаемых файлах — вынеси в .vault"; exit 1
+        else
+          echo "::error::scrub-secrets вернул rc=$rc — гейт fail-closed"; exit 1
+        fi
