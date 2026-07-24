@@ -39,9 +39,16 @@ runs:
         # Long-form :(exclude) so paths with a leading '@' don't break the pathspec.
         excl=( ':(exclude).github/**' ':(exclude).githooks/**' )
         ignore=""
-        if [ -n "${BASE_REF}" ] && git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
-          ignore="$(git show "origin/$BASE_REF:.github/secret-scan-ignore" 2>/dev/null || true)"
+        if [ -n "${BASE_REF}" ]; then
+          # PR-контекст: ignore берём ТОЛЬКО из доверенной base-ветки, никогда из PR-дерева
+          # (иначе PR дописал бы ignore и спрятал секрет). base недоступен → fail-closed.
+          if git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
+            ignore="$(git show "origin/$BASE_REF:.github/secret-scan-ignore" 2>/dev/null || true)"
+          else
+            echo "::error::base '$BASE_REF' недоступен (нужен fetch-depth:0) — fail-closed"; exit 1
+          fi
         elif [ -f .github/secret-scan-ignore ]; then
+          # Вне PR (workflow_dispatch): доверенного base нет, берём из рабочего дерева.
           ignore="$(cat .github/secret-scan-ignore)"
         fi
         while IFS= read -r p; do
@@ -53,9 +60,14 @@ runs:
         ov=()
         if [ -n "${OVERLAY}" ] && [ -f "${OVERLAY}" ]; then ov=(--patterns "${OVERLAY}"); fi
 
-        # collect tracked files, NUL-safe; skip the gate cleanly if none match
+        # collect tracked files, NUL-safe. $SCAN_PATHS НЕ в кавычках намеренно — это набор
+        # глобов-пафспеков, нужен word-split ('*.md' '*.txt' …); кавычки склеили бы в один.
         mapfile -d '' -t files < <(git ls-files -z $SCAN_PATHS "${excl[@]}")
-        if [ ${#files[@]} -eq 0 ]; then echo "no matching files — skip"; exit 0; fi
+        if [ ${#files[@]} -eq 0 ]; then
+          # не молчим: пустой набор может быть опечаткой в paths. Не fail (свежая репа
+          # законно может не иметь совпадений), но громко предупреждаем.
+          echo "::warning::pathspec matched no files (tier=$TIER) — проверь input paths"; exit 0
+        fi
 
         python3 -m scrub_secrets.cli --tier "$TIER" "${ov[@]}" --check "${files[@]}"
         rc=$?

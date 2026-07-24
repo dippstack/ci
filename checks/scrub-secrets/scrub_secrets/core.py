@@ -36,17 +36,36 @@ def _compile_flags(spec):
     return flags
 
 
+_REQUIRED = {"id", "regex", "replacement"}
+_CLASSES = {"core", "dsn-creds", "prose"}
+
+
 def load_patterns(path):
     """Load a pattern file (public or private overlay). Returns list of dicts:
-    {id, class, rx (compiled), replacement, context (bool)}."""
+    {id, class, rx (compiled), replacement, context (bool)}.
+
+    Raises ValueError on any malformed pattern (missing key, bad class, invalid
+    regex) so the caller can fail-closed with a clean message — never a traceback."""
     with open(path, "r", encoding="utf-8") as fh:
         doc = json.load(fh)
+    if not isinstance(doc.get("patterns"), list):
+        raise ValueError(f"{path}: top-level 'patterns' must be a list")
     out = []
     for s in doc["patterns"]:
+        missing = _REQUIRED - set(s)
+        if missing:
+            raise ValueError(f"pattern {s.get('id', '?')!r} missing keys: {sorted(missing)}")
+        cls = s.get("class", "core")
+        if cls not in _CLASSES:
+            raise ValueError(f"pattern {s['id']!r}: unknown class {cls!r}")
+        try:
+            rx = re.compile(s["regex"], _compile_flags(s))
+        except re.error as e:
+            raise ValueError(f"pattern {s['id']!r}: invalid regex: {e}")
         out.append({
             "id": s["id"],
-            "class": s.get("class", "core"),
-            "rx": re.compile(s["regex"], _compile_flags(s)),
+            "class": cls,
+            "rx": rx,
             "replacement": s["replacement"],
             "context": bool(s.get("context")),
         })

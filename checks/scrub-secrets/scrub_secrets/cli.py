@@ -18,10 +18,18 @@ from . import __version__
 from .core import scrub, load_patterns, iter_files, TIERS, PUBLIC_PATTERNS_PATH
 
 
+def _value(argv, i, flag):
+    """Value that follows a flag, or None if the flag is last / has no value."""
+    if i + 1 >= len(argv):
+        sys.stderr.write(f"error: {flag} requires a value\n")
+        return None
+    return argv[i + 1]
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     mode = "in-place"
-    tier = "core"
+    tier = None
     overlays = []
     public_path = PUBLIC_PATTERNS_PATH
     paths = []
@@ -38,26 +46,35 @@ def main(argv=None):
         elif a == "--list-tiers":
             print(" ".join(TIERS))
             return 0
-        elif a == "--tier":
+        elif a in ("--tier", "--patterns", "--public"):
+            v = _value(argv, i, a)
+            if v is None:
+                return 3
+            if a == "--tier":
+                tier = v
+            elif a == "--patterns":
+                overlays.append(v)
+            else:
+                public_path = v
             i += 1
-            tier = argv[i]
-        elif a == "--patterns":
-            i += 1
-            overlays.append(argv[i])
-        elif a == "--public":
-            i += 1
-            public_path = argv[i]
         else:
             paths.append(a)
         i += 1
 
+    if tier is None:
+        sys.stderr.write(f"error: --tier is required ({' | '.join(TIERS)})\n")
+        return 3
     if tier not in TIERS:
         sys.stderr.write(f"error: unknown --tier {tier!r}; valid: {', '.join(TIERS)}\n")
         return 3
 
-    patterns = load_patterns(public_path)
-    for ov in overlays:
-        patterns += load_patterns(ov)
+    try:
+        patterns = load_patterns(public_path)
+        for ov in overlays:
+            patterns += load_patterns(ov)
+    except (OSError, ValueError) as e:  # ValueError covers json.JSONDecodeError + our raises
+        sys.stderr.write(f"error: cannot load patterns: {e}\n")
+        return 3
 
     if not paths:  # stdin -> stdout
         out, _ = scrub(sys.stdin.read(), patterns, tier)

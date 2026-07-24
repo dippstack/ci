@@ -89,3 +89,29 @@ def test_bad_tier_raises():
     import pytest
     with pytest.raises(ValueError):
         scrub("x", PATTERNS, "ful")
+
+
+def test_load_patterns_rejects_malformed():
+    import pytest
+    for bad in (
+        {"patterns": [{"id": "x", "regex": "a"}]},                  # missing replacement
+        {"patterns": [{"id": "x", "regex": "(", "replacement": "y"}]},  # invalid regex
+        {"patterns": [{"id": "x", "class": "nope", "regex": "a", "replacement": "y"}]},  # bad class
+        {"patterns": "notalist"},                                   # patterns not a list
+    ):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(bad, fh)
+            p = fh.name
+        try:
+            with pytest.raises(ValueError):
+                load_patterns(p)
+        finally:
+            os.unlink(p)
+
+
+def test_cli_requires_tier_and_flag_values():
+    from scrub_secrets.cli import main
+    assert main(["--check", "/dev/null"]) == 3      # no --tier
+    assert main(["--tier"]) == 3                     # --tier without value
+    assert main(["--tier", "ful", "--check", "/dev/null"]) == 3  # bad tier value
+    assert main(["--patterns"]) == 3                 # --patterns without value
