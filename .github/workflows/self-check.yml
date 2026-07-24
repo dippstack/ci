@@ -62,4 +62,6 @@ jobs:
 
       - name: тесты движка (контр-примеры на дрейф регекспа)
         working-directory: checks/scrub-secrets
-        run: PYTHONPATH=. python3 -m pytest tests/ -q
+        env:
+          PYTHONPATH: .
+        run: pipx run pytest -q tests/
