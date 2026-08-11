@@ -53,7 +53,11 @@ CASES = [
     ("kv-prose-cyrillic", "token = a11y/perf-ручка", "full", False),   # non-ASCII value
     ("kv-prose-weak", "token=example", "full", False),                 # dictionary default
     ("kv-prose-path", "secret = /etc/ssl/cert", "full", False),        # path, not a secret
-    ("kv-prose-short", "pwd = ok", "full", False),                     # too short / trivial
+    ("kv-prose-short", "pwd = ok", "full", False),
+    # ссылка на секрет — это указатель, а не секрет; именно её мы и предписываем
+    ("kv-secret-ref", "secret: ${secret:mp/tg-token}", "full", False),
+    ("kv-env-ref", "token: ${TG_TOKEN}", "full", False),
+    ("kv-real-still-caught", "token: A1b2C3d4E5f6", "full", True),                     # too short / trivial
 ]
 
 

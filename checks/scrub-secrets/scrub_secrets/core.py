@@ -78,11 +78,16 @@ def load_patterns(path):
     return out
 
 
+_SECRET_REF = re.compile(r"^\$\{[^}]+\}$")   # ${secret:path} / ${VAR} — это УКАЗАТЕЛЬ, не секрет
+
+
 def _is_real_secret(val):
     """Does a captured label=value / shared-key value actually look like a secret?
     Prose vaults are full of sentences like `token = a11y/perf-ручка` — a real
     secret is ASCII, not a dictionary default, has some entropy, and isn't a
     path / domain / email. This is the (layerable) entropy/shape gate."""
+    if _SECRET_REF.match(val):     # a reference to a secret is the SAFE pattern we prescribe
+        return False
     if not val.isascii():                                  # cyrillic / prose word
         return False
     if "@" in val or "://" in val or val.startswith("/") or val.startswith("http"):
