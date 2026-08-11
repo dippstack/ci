@@ -60,9 +60,14 @@ runs:
         ov=()
         if [ -n "${OVERLAY}" ] && [ -f "${OVERLAY}" ]; then ov=(--patterns "${OVERLAY}"); fi
 
-        # collect tracked files, NUL-safe. $SCAN_PATHS НЕ в кавычках намеренно — это набор
-        # глобов-пафспеков, нужен word-split ('*.md' '*.txt' …); кавычки склеили бы в один.
+        # collect tracked files, NUL-safe.
+        # КРИТИЧНО: $SCAN_PATHS без кавычек нужен для word-split ('*.md' '*.txt' …), НО bash
+        # заодно РАСКРЫВАЕТ глобы по текущему каталогу — и тогда git получает список файлов
+        # ИЗ КОРНЯ вместо рекурсивного pathspec. Симптом: гейт сканировал 5 файлов вместо 369.
+        # `set -f` глушит раскрытие, оставляя word-split → git получает шаблоны литералами.
+        set -f
         mapfile -d '' -t files < <(git ls-files -z $SCAN_PATHS "${excl[@]}")
+        set +f
         if [ ${#files[@]} -eq 0 ]; then
           # не молчим: пустой набор может быть опечаткой в paths. Не fail (свежая репа
           # законно может не иметь совпадений), но громко предупреждаем.
