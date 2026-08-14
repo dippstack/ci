@@ -39,9 +39,16 @@ jobs:
           base_ref: ${{ github.base_ref }}
 
       # pnpm ДО setup-node — иначе cache: pnpm не найдёт менеджер.
+      #
+      # dest в runner.temp, а НЕ в ~/setup-pnpm по умолчанию. На self-hosted раннере
+      # домашняя директория переживает прогоны: внутри ~/setup-pnpm оседает стор от
+      # прошлого раза, и следующая установка падает на попытке снести непустую папку
+      # (ENOTEMPTY ... rmdir '~/setup-pnpm/node_modules/.bin/store/v10/index/..').
+      # runner.temp своя на каждый прогон и чистится — установка всегда с нуля.
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ inputs.pnpm-version }}
+          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
