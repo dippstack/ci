@@ -1,0 +1,159 @@
+name: ci-terraform
+# Reusable CI-гейт флота для инфраструктурного кода (OpenTofu/Terraform). ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
+# Зовётся тонким стабом из репы (dippcloud):
+#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-terraform.yml@v1,
+#                 with: { modules: '["modules/x", "live/home/y"]', plan-modules: '["live/home/y"]' },
+#                 secrets: inherit } }
+# Два джоба. validate — без кредов и без сети к облаку: fmt → init -backend=false → validate →
+# tflint → trivy config → tofu test (если есть tests/). plan — только plan, НИКОГДА apply:
+# читает state, показывает дифф в summary; на расписании с fail-on-drift красит расхождение
+# инфры с git. Токены облаков живут в secrets вызывающей репы (secrets: inherit), в рецепте
+# их нет. Раннер свой, home (правило 1 канона CI). Менять гейт — ТОЛЬКО здесь.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "runs-on для гейта (по умолчанию свой раннер home)"
+        type: string
+        required: false
+        default: home
+      modules:
+        description: "JSON-список каталогов для validate (fmt/validate/tflint/trivy/test). Пусто — джоб пропускается."
+        type: string
+        required: false
+        default: "[]"
+      plan-modules:
+        description: "JSON-список live-стеков для plan (без apply). Пусто — джоб пропускается."
+        type: string
+        required: false
+        default: "[]"
+      fail-on-drift:
+        description: "plan с -detailed-exitcode: дифф между state и кодом красит джоб (для расписания дрейфа)."
+        type: boolean
+        required: false
+        default: false
+      tofu-version:
+        type: string
+        required: false
+        default: "1.12.6"
+      tflint-version:
+        type: string
+        required: false
+        default: "v0.64.0"
+    secrets:
+      # Провайдерные токены вызывающей репы — в рецепте не хранятся, приходят через secrets: inherit.
+      DO_TOKEN:
+        required: false
+      CLOUDFLARE_API_TOKEN:
+        required: false
+
+permissions:
+  contents: read   # least privilege: гейту нужен только read исходника
+
+jobs:
+  validate:
+    if: inputs.modules != '[]'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(inputs.modules) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: канон CI — только свои раннеры
+        uses: dippstack/ci/checks/own-runner@main
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ inputs.tofu-version }}
+
+      - name: fmt check
+        working-directory: ${{ matrix.module }}
+        run: tofu fmt -check -recursive
+
+      - name: init (без backend и без кредов — для validate достаточно)
+        working-directory: ${{ matrix.module }}
+        run: tofu init -backend=false -input=false
+
+      - name: validate
+        working-directory: ${{ matrix.module }}
+        run: tofu validate
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: ${{ inputs.tflint-version }}
+
+      - name: tflint (конфиг .tflint.hcl из корня репы, если есть)
+        working-directory: ${{ matrix.module }}
+        run: |
+          cfg="${GITHUB_WORKSPACE}/.tflint.hcl"
+          if [ -f "$cfg" ]; then
+            tflint --init --config="$cfg"
+            tflint --config="$cfg"
+          else
+            tflint --init
+            tflint
+          fi
+
+      - name: trivy config scan (CRITICAL,HIGH)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: ${{ matrix.module }}
+          severity: CRITICAL,HIGH
+          exit-code: 1
+
+      - name: tofu test (mock provider, если есть tests/)
+        working-directory: ${{ matrix.module }}
+        run: |
+          if [ -d tests ]; then tofu test; else echo "нет tests/ — live-стек, тестируется модуль, не он"; fi
+
+  # Только plan, никогда apply. На PR из форка джоб не бежит: секреты форку не даются.
+  plan:
+    if: inputs.plan-modules != '[]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(inputs.plan-modules) }}
+    env:
+      TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
+      TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_IN_AUTOMATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ inputs.tofu-version }}
+
+      - name: init
+        working-directory: ${{ matrix.module }}
+        run: tofu init -input=false
+
+      - name: plan (без apply; exit 2 = дифф между state и кодом)
+        id: plan
+        working-directory: ${{ matrix.module }}
+        run: |
+          set +e
+          tofu plan -detailed-exitcode -no-color -input=false -out=tfplan | tee plan.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "exitcode=$rc" >> "$GITHUB_OUTPUT"
+          {
+            echo "## plan: ${{ matrix.module }} (rc=$rc)"
+            echo '```'
+            tail -n 60 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f tfplan
+          [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ] || exit "$rc"
+
+      - name: дрейф (только с fail-on-drift)
+        if: inputs.fail-on-drift && steps.plan.outputs.exitcode == '2'
+        run: |
+          echo "::warning::дрейф в ${{ matrix.module }} — реальная инфраструктура разошлась с git"
+          exit 1

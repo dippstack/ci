@@ -20,6 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: канон CI — только свои раннеры
+        uses: ./checks/own-runner   # локальный путь: на PR в ci сам @main ещё без чека
+
       - name: приватные паттерн-файлы не должны жить в публичном ci
         run: |
           # Якорим на ИМЯ ФАЙЛА (basename), не на путь: папка scrub-secrets содержит '-secret',
