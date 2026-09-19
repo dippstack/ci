@@ -29,6 +29,9 @@ jobs:
         with:
           fetch-depth: 0   # база origin/<base> нужна anti-self-approval ignore в скраб-шаге
 
+      - name: канон CI — только свои раннеры
+        uses: dippstack/ci/checks/own-runner@main
+
       # Секрет-скан единым движком (тот же, что у python/vault-репо) — закрываем дыру:
       # Node-репо раньше не гейтились на секреты вообще. tier=core+dsn-creds (код).
       # Нужен python3 на self-hosted home-раннере. Нет секрета → мгновенно дальше.

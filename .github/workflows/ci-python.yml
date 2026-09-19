@@ -25,6 +25,9 @@ jobs:
         with:
           fetch-depth: 0   # база origin/<base> нужна дифф-проверкам (hardcode-гард + ignore)
 
+      - name: канон CI — только свои раннеры
+        uses: dippstack/ci/checks/own-runner@main
+
       # Единый движок скраббера (dippstack/ci/checks/scrub-secrets) вместо инлайн-git-grep.
       # Тир code-репо = core+dsn-creds (однозначные токены + DSN-с-кредами; `password=` НЕ
       # гейтим на коде — шумно). anti-self-approval (ignore из BASE-ветки) — внутри action.

@@ -34,6 +34,9 @@ jobs:
         with:
           fetch-depth: 0   # база origin/<base> нужна anti-self-approval ignore
 
+      - name: канон CI — только свои раннеры
+        uses: dippstack/ci/checks/own-runner@main
+
       - name: скраб-секретов прозы (единый движок, tier=full)
         uses: dippstack/ci/checks/scrub-secrets@main
         with:
