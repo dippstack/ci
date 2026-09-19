@@ -134,7 +134,16 @@ jobs:
           # Уже бежит (таймер катит, сборка висит на замке) — второй экземпляр не запускаем: у yan
           # он ждал бы замок 600с и пометил бы НАШ target как failed (прогон 35439161405, 19.09),
           # хотя хост просто ещё занят. Health ниже дождётся результата того, что уже бежит.
-          run "if pgrep -f 'bash deploy/autodeploy.sh' >/dev/null 2>&1; then echo 'autodeploy уже бежит на хосте — не дублирую, жду health'; else mkdir -p ~/.deliver && cd $DEPLOY_DIR && nohup bash deploy/autodeploy.sh >> ~/.deliver/$LOG_NAME.log 2>&1 </dev/null & fi"
+          # Запуск — отдельной строкой, а не хвостом «a && b && nohup c &»: там & уходит на всю
+          # цепочку, фоновая подоболочка наследует stdout ssh-сессии и держит её открытой, пока
+          # бежит autodeploy (шаг yan висел 30 минут, прогон 35439161405).
+          SCRIPT="$(printf '%s\n' \
+            "if pgrep -f 'bash deploy/autodeploy.sh' >/dev/null 2>&1; then echo 'autodeploy уже бежит на хосте — не дублирую, жду health'; exit 0; fi" \
+            "mkdir -p ~/.deliver" \
+            "cd $DEPLOY_DIR || exit 1" \
+            "nohup bash deploy/autodeploy.sh >> ~/.deliver/$LOG_NAME.log 2>&1 </dev/null &" \
+            'echo "autodeploy запущен (pid $!)"')"
+          run "$SCRIPT"
 
       - name: health на хосте (deploy/health.sh ${{ github.sha }})
         if: ${{ inputs.driver == 'script' || inputs.driver == 'watch' }}
