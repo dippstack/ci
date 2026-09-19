@@ -56,6 +56,24 @@ jobs:
     secrets: inherit
 ```
 
+**Выкатка (deliver)** — `.github/workflows/deliver.yml@v1`, стаб `deliver.yml` в репо продукта
+на push в main. Сам контур доставки (реестр, kamal, шаблон `health.sh`, разворот на чистом
+хосте) — приватный `dippstack/delivery`; здесь только reusable-механика, потому что её зовут
+из других орг. Пример для продукта с pull-моделью на хосте:
+
+```yaml
+jobs:
+  deliver:
+    uses: dippstack/ci/.github/workflows/deliver.yml@v1
+    with:
+      service: yan
+      driver: script            # kamal | script | watch
+      runner: imac              # раннер с доверенным ssh до хоста
+      deploy-host: home
+      deploy-dir: ~/yan
+      vault-env: /Users/imac/sandbox/yan/.vault/env/delivery.env   # TELEGRAM_TOKEN/CHAT
+```
+
 ## Рецепты
 
 - **`ci-python.yml`** — секрет-скан (regex по трекаемым; исключения ложных
@@ -73,6 +91,12 @@ jobs:
   в summary прогона. С `fail-on-drift: true` расхождение state с кодом красит джоб — так
   работает расписание дрейфа. Токены провайдеров в рецепте не хранятся: вызывающая репа
   отдаёт свои secrets через `secrets: inherit`. На PR из форка `plan` не бежит.
+- **`deliver.yml`** — шлюз выкатки. `driver: kamal` — образ → реестр → `kamal deploy` с
+  откатом; `driver: script` — по ssh отцепленно (`nohup`) запустить `deploy/autodeploy.sh`
+  продукта и ждать `deploy/health.sh <sha>` (rc 0 доехало, 1 ещё нет, 2 хост отверг этот
+  SHA — красный сразу); `driver: watch` — только ждать health, когда таймер на узле нельзя
+  дублировать. Телеграм: «выкатываю» до, правка на «готово / упало» после; токен и чат из
+  `vault-env` на раннере, нет файла — предупреждение и прогон молча. Раннер — вход `runner`.
 - **`checks/own-runner`** — правило 1 канона CI: ни одного облачного раннера GitHub.
   Композитное действие, стоит первым шагом во всех рецептах выше и в `self-check`: грепает
   `.github/workflows` вызывающей репы на `ubuntu-*`, `macos-*`, `windows-*` (комментарии не
