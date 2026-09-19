@@ -10,7 +10,7 @@ on:
       runner:
         type: string
         required: false
-        default: ubuntu-latest
+        default: home
       patterns:
         description: "Путь к приватному оверлею паттернов в Vault волта (вендор/язык). Опционально."
         type: string

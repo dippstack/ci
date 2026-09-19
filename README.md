@@ -38,8 +38,8 @@ jobs:
 - **`ci-python.yml`** — секрет-скан (regex по трекаемым; исключения ложных
   срабатываний — построчно в `.github/secret-scan-ignore` вызывающей репы) → `ruff --select E9`
   (синтакс-ошибки Python) → `shellcheck -S error` (если есть `*.sh`) → `scripts/check-paths.sh`
-  (если есть, hardcode-гард) → `make verify` (если есть цель). Раннер `ubuntu-latest`
-  (вход `runner` для оверрайда). Шаги гардятся на наличие → один рецепт покрывает репы
+  (если есть, hardcode-гард) → `make verify` (если есть цель). Раннер свой `home`
+  (вход `runner` для оверрайда; GitHub-hosted не используем). Шаги гардятся на наличие → один рецепт покрывает репы
   с мелкими отличиями.
 - **`ci-node.yml`** — `pnpm install --frozen-lockfile` → `pnpm typecheck` → `pnpm lint`
   на self-hosted `home`-раннере. Входы `node-version` (22), `pnpm-version` (10.0.0).
