@@ -3,7 +3,7 @@ name: ci-vault
 # Отличие от ci-python: волту не нужны ruff/shellcheck/pnpm — только скраб секретов по прозе,
 # на ПОЛНОМ тире (core+dsn-creds+prose: password=/shared-key тоже). Вендор-специфику волт
 # подтягивает приватным оверлеем из своего Vault (вход patterns). Зовётся тонким стабом:
-#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-vault.yml@<sha>, with: { patterns: .config/scrub-extra.json } } }
+#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-vault.yml@v1, with: { patterns: .config/scrub-extra.json } } }
 on:
   workflow_call:
     inputs:

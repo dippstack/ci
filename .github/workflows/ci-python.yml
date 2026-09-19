@@ -1,7 +1,7 @@
 name: ci-python
 # Reusable CI-гейт флота для Python/shell репо. ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
-# Зовётся тонким стабом из репы (пин по SHA, не по подвижному тегу — supply-chain):
-#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-python.yml@<sha> } }
+# Зовётся тонким стабом из репы по подвижному тегу v1 (канон CI 2026-09-19):
+#   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-python.yml@v1 } }
 # Шаги гардятся на наличие файла/цели → один рецепт покрывает репы с мелкими отличиями
 # (у одной есть scripts/check-paths.sh, у другой — make verify). Менять гейт — ТОЛЬКО здесь.
 on:
@@ -31,8 +31,8 @@ jobs:
       # Единый движок скраббера (dippstack/ci/checks/scrub-secrets) вместо инлайн-git-grep.
       # Тир code-репо = core+dsn-creds (однозначные токены + DSN-с-кредами; `password=` НЕ
       # гейтим на коде — шумно). anti-self-approval (ignore из BASE-ветки) — внутри action.
-      # first-party action в своём же репо → допустим подвижный @main; supply-chain-пин для
-      # консьюмеров держит стаб (bump-stubs.sh пинит reusable-workflow по SHA).
+      # first-party action в своём же репо → допустим подвижный @main; консьюмеры зовут
+      # рецепт по тегу v1, который двигается релизом ci.
       - name: секрет-скан (единый движок, tier=core+dsn-creds)
         uses: dippstack/ci/checks/scrub-secrets@main
         with:
