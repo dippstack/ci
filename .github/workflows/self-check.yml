@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   guard:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, home]
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4

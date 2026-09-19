@@ -8,10 +8,10 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: "runs-on для гейта (по умолчанию GitHub-hosted ubuntu)"
+        description: "runs-on для гейта (по умолчанию свой раннер home)"
         type: string
         required: false
-        default: ubuntu-latest
+        default: home
 
 permissions:
   contents: read   # least privilege: гейту нужен только read исходника
