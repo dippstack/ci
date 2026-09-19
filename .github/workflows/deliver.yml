@@ -138,8 +138,10 @@ jobs:
         run: |
           run(){ if [ -n "$DEPLOY_HOST" ]; then ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "bash -lc $(printf %q "$1")"; else bash -lc "$1"; fi; }
           DEADLINE=$(( $(date +%s) + HEALTH_TIMEOUT ))
+          # Шаг бежит под bash -e: провал run в простой команде завершил бы шаг на первой же
+          # попытке (так упали прогоны 35438697941 и 35438702010) — берём rc через if.
           while :; do
-            run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; rc=$?
+            if run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; then rc=0; else rc=$?; fi
             case $rc in
               0) echo "✅ health: $SERVICE на $SHORT_SHA"; exit 0 ;;
               2) echo "❌ хост отверг $SHORT_SHA (гейт/флап-гард) — см. лог ниже" >&2; break ;;
