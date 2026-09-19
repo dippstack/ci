@@ -1,0 +1,106 @@
+name: ci-terraform
+# Reusable Terraform/OpenTofu-гейт флота. ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
+# Зовётся тонким стабом из репы (пин по SHA, не по подвижному тегу — supply-chain):
+#   jobs: { terraform: { uses: dippstack/ci/.github/workflows/ci-terraform.yml@<sha>, with: {...}, secrets: inherit } }
+# Перенесено из dippstack/dippcloud (terraform-ci.yml) без изменения поведения — тот же
+# fmt/validate/tflint/trivy/tofu-test набор, тот же принцип «plan без apply на PR».
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: "runs-on для гейта (по умолчанию свой раннер home)"
+        type: string
+        required: false
+        default: home
+      validate_modules:
+        description: "JSON-массив путей для fmt/validate/tflint/trivy/tofu test, напр. [\"modules/x\",\"live/home/y\"]"
+        type: string
+        required: true
+      plan_modules:
+        description: "JSON-массив путей live-стеков для реального tofu plan (с секретами). Пусто — джоба пропускается."
+        type: string
+        required: false
+        default: "[]"
+      tofu_version:
+        type: string
+        required: false
+        default: "1.12.6"
+      tflint_version:
+        type: string
+        required: false
+        default: "v0.64.0"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ${{ inputs.runner }}
+    strategy:
+      matrix:
+        module: ${{ fromJson(inputs.validate_modules) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ inputs.tofu_version }}
+
+      - name: fmt check
+        working-directory: ${{ matrix.module }}
+        run: tofu fmt -check -recursive
+
+      - name: init (no backend, no credentials needed for validate)
+        working-directory: ${{ matrix.module }}
+        run: tofu init -backend=false
+
+      - name: validate
+        working-directory: ${{ matrix.module }}
+        run: tofu validate
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: ${{ inputs.tflint_version }}
+
+      - name: tflint
+        working-directory: ${{ matrix.module }}
+        run: |
+          tflint --init --config="${GITHUB_WORKSPACE}/.tflint.hcl"
+          tflint --config="${GITHUB_WORKSPACE}/.tflint.hcl"
+
+      - name: trivy config scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: ${{ matrix.module }}
+          severity: CRITICAL,HIGH
+          exit-code: 1
+
+      - name: tofu test (mock provider, без реальных креденшлов — если есть tests/)
+        working-directory: ${{ matrix.module }}
+        run: |
+          if [ -d tests ]; then tofu test; else echo "нет tests/ — live-стек, тестируется модуль, не он"; fi
+
+  # Реальный plan с настоящими токенами — только человек может запустить apply руками.
+  # Секреты сейчас именованы под dippcloud (DO/Cloudflare) — первый и единственный
+  # потребитель; параметризовать именами секретов, когда появится второй (два вызывающих
+  # с разными провайдерами — тогда абстракция настоящая, не преждевременная).
+  plan-with-credentials:
+    if: github.event.pull_request.head.repo.full_name == github.repository && inputs.plan_modules != '[]'
+    runs-on: ${{ inputs.runner }}
+    strategy:
+      matrix:
+        module: ${{ fromJson(inputs.plan_modules) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ inputs.tofu_version }}
+      - name: plan
+        working-directory: ${{ matrix.module }}
+        env:
+          TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          tofu init
+          tofu plan -no-color -out=tfplan

@@ -3,7 +3,9 @@ name: self-check
 # Гоняется на PR в сам ci. Держит границу public/private для checks/scrub-secrets:
 #  1) приватные паттерн-файлы НИКОГДА не коммитятся сюда (имя-барьер);
 #  2) вендор-теллы не протекают в публичный код/паттерны;
-#  3) patterns-public.json парсится; тесты движка зелёные до тега.
+#  3) patterns-public.json парсится; тесты движка зелёные до тега;
+#  4) ни один reusable-рецепт не съезжает на GitHub-hosted раннер (ais#747) — источник
+#     правды один, и если здесь чисто, весь флот наследует self-hosted через consumers.
 on:
   pull_request:
     branches: [main]
@@ -42,6 +44,16 @@ jobs:
           else
             echo "::error::git grep rc=$rc — fail-closed"; exit 1
           fi
+
+      - name: ни один reusable-рецепт не съезжает на ubuntu-latest
+        run: |
+          # Ищем именно GitHub-hosted лейблы (ubuntu-latest/windows-latest/macos-latest),
+          # не строку "ubuntu" вообще — тесты/докстринги про Ubuntu как ОС легитимны.
+          bad="$(git grep -niE '(ubuntu|windows|macos)-(latest|[0-9]{2}\.[0-9]{2})' -- '.github/workflows/*.yml' ':(exclude).github/workflows/self-check.yml' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::GitHub-hosted раннер в reusable-рецепте — весь флот унаследует биллинг-риск:"; echo "$bad"; exit 1
+          fi
+          echo "все рецепты на self-hosted"
 
       - uses: actions/setup-python@v5
         with:
