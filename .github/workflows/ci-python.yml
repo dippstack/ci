@@ -53,7 +53,25 @@ jobs:
             fi
           done
           if [ ${#sh[@]} -gt 0 ]; then
-            sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+            if ! command -v shellcheck >/dev/null 2>&1; then
+              if sudo -n true 2>/dev/null; then
+                sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+              else
+                # Часть флота (self-hosted раннер home) без sudo вообще —
+                # rootless-контур сознательно (ais canon, 2026-09-08). Пин по
+                # версии+sha256, тот же метод, что wt в ais/.github/workflows/sh-gate.yml.
+                v=0.10.0
+                url="https://github.com/koalaman/shellcheck/releases/download/v${v}/shellcheck-v${v}.linux.x86_64.tar.xz"
+                sha="6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87"
+                curl -fsSL -o /tmp/shellcheck.tar.xz "$url"
+                echo "${sha}  /tmp/shellcheck.tar.xz" | sha256sum -c -
+                tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+                mkdir -p "$HOME/.local/bin"
+                install -m 755 "/tmp/shellcheck-v${v}/shellcheck" "$HOME/.local/bin/shellcheck"
+                echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+                export PATH="$HOME/.local/bin:$PATH"
+              fi
+            fi
             shellcheck -S error "${sh[@]}"
           else
             echo "shell-скриптов для shellcheck нет — пропуск"
