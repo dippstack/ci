@@ -80,6 +80,7 @@ jobs:
             *) echo "неизвестный driver: $DRIVER (kamal | script | watch)" >&2; exit 1 ;;
           esac
           echo "SHORT_SHA=${SHA:0:7}" >> "$GITHUB_ENV"
+          echo "LOG_NAME=${SERVICE//\//-}" >> "$GITHUB_ENV"        # marketspace/home → marketspace-home
 
       - name: секреты из .vault (единственный источник, грепом + маска)
         run: |
@@ -122,21 +123,25 @@ jobs:
           kamal deploy -c "${{ inputs.kamal-config }}"
 
       # Один и тот же login-shell на хосте и на раннере (PATH из профиля: node, docker, make).
-      # Деплой — отцепленно: nohup + лог в deploy/local/deliver.log клона, ssh возвращается сразу.
+      # Деплой — отцепленно: nohup + лог в $HOME/.deliver/<service>.log на хосте, ssh возвращается
+      # сразу. Лог не в клоне: deploy/local у yan держит докерные тома под root, и запись туда
+      # падала «Permission denied» ещё до старта скрипта (прогон 35438697941).
       - name: deploy/autodeploy.sh на хосте (отцепленно)
         if: ${{ inputs.driver == 'script' }}
         run: |
           run(){ if [ -n "$DEPLOY_HOST" ]; then ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "bash -lc $(printf %q "$1")"; else bash -lc "$1"; fi; }
-          echo "→ ${DEPLOY_HOST:-локально ($(hostname -s))}: $DEPLOY_DIR/deploy/autodeploy.sh (лог: deploy/local/deliver.log)"
-          run "cd $DEPLOY_DIR && mkdir -p deploy/local && nohup bash deploy/autodeploy.sh >> deploy/local/deliver.log 2>&1 </dev/null &"
+          echo "→ ${DEPLOY_HOST:-локально ($(hostname -s))}: $DEPLOY_DIR/deploy/autodeploy.sh (лог: ~/.deliver/$LOG_NAME.log)"
+          run "mkdir -p ~/.deliver && cd $DEPLOY_DIR && nohup bash deploy/autodeploy.sh >> ~/.deliver/$LOG_NAME.log 2>&1 </dev/null &"
 
       - name: health на хосте (deploy/health.sh ${{ github.sha }})
         if: ${{ inputs.driver == 'script' || inputs.driver == 'watch' }}
         run: |
           run(){ if [ -n "$DEPLOY_HOST" ]; then ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "bash -lc $(printf %q "$1")"; else bash -lc "$1"; fi; }
           DEADLINE=$(( $(date +%s) + HEALTH_TIMEOUT ))
+          # Шаг бежит под bash -e: провал run в простой команде завершил бы шаг на первой же
+          # попытке (так упали прогоны 35438697941 и 35438702010) — берём rc через if.
           while :; do
-            run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; rc=$?
+            if run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; then rc=0; else rc=$?; fi
             case $rc in
               0) echo "✅ health: $SERVICE на $SHORT_SHA"; exit 0 ;;
               2) echo "❌ хост отверг $SHORT_SHA (гейт/флап-гард) — см. лог ниже" >&2; break ;;
@@ -144,8 +149,8 @@ jobs:
             [ "$(date +%s)" -lt "$DEADLINE" ] || { echo "❌ health не позеленел за ${HEALTH_TIMEOUT}с" >&2; break; }
             sleep 15
           done
-          echo "--- хвост deploy/local/deliver.log на хосте ---"
-          run "tail -n 40 $DEPLOY_DIR/deploy/local/deliver.log 2>/dev/null" || true
+          echo "--- хвост ~/.deliver/$LOG_NAME.log на хосте ---"
+          run "tail -n 40 ~/.deliver/$LOG_NAME.log 2>/dev/null" || true
           exit 1
 
       - name: «готово» → Телеграм (правим тот же тред)
