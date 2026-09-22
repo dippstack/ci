@@ -125,17 +125,6 @@ jobs:
             echo "$k=$v" >> "$GITHUB_ENV"
           done
 
-      - name: сборка + пуш в home-реестр (теги sha+latest)
-        id: build
-        if: ${{ inputs.driver == 'kamal' }}
-        run: |
-          echo "FAIL_REASON=сборка образа упала" >> "$GITHUB_ENV"
-          REF="$REGISTRY_HOST/$IMAGE_NAME"
-          echo "$REGISTRY_PASS" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USER" --password-stdin
-          docker build -f "$DOCKERFILE" -t "$REF:$SHORT_SHA" -t "$REF:latest" "$BUILD_CONTEXT"
-          docker push "$REF:$SHORT_SHA"; docker push "$REF:latest"
-          echo "ref=$REF:$SHORT_SHA" >> "$GITHUB_OUTPUT"
-
       - name: «выкатываю» → Телеграм
         id: notify
         if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_DEVSUPPORT_CHAT != '' }}
@@ -148,6 +137,17 @@ jobs:
             --data-urlencode parse_mode=HTML --data-urlencode disable_web_page_preview=true \
             --data-urlencode text="$TEXT")
           echo "mid=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("result",{}).get("message_id",""))')" >> "$GITHUB_OUTPUT"
+
+      - name: сборка + пуш в home-реестр (теги sha+latest)
+        id: build
+        if: ${{ inputs.driver == 'kamal' }}
+        run: |
+          echo "FAIL_REASON=сборка образа упала" >> "$GITHUB_ENV"
+          REF="$REGISTRY_HOST/$IMAGE_NAME"
+          echo "$REGISTRY_PASS" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USER" --password-stdin
+          docker build -f "$DOCKERFILE" -t "$REF:$SHORT_SHA" -t "$REF:latest" "$BUILD_CONTEXT"
+          docker push "$REF:$SHORT_SHA"; docker push "$REF:latest"
+          echo "ref=$REF:$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: kamal deploy (zero-downtime + health + авто-откат)
         if: ${{ inputs.driver == 'kamal' }}
@@ -190,11 +190,11 @@ jobs:
             if run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; then rc=0; else rc=$?; fi
             case $rc in
               0) echo "✅ health: $SERVICE на $SHORT_SHA"; exit 0 ;;
-              2) echo "FAIL_REASON=хост отверг коммит (гейт или флап-гард красный)" >> "$GITHUB_ENV"
+              2) echo "FAIL_REASON=хост отверг коммит (гейт или флап-гард красный), прод остался на прежнем" >> "$GITHUB_ENV"
                  echo "❌ хост отверг $SHORT_SHA (гейт/флап-гард) — см. лог ниже" >&2; break ;;
             esac
             if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-              echo "FAIL_REASON=сервис не поднялся за $((HEALTH_TIMEOUT / 60)) мин" >> "$GITHUB_ENV"
+              echo "FAIL_REASON=сервис не поднялся за $((HEALTH_TIMEOUT / 60)) мин (смоук на хосте откатывает сам)" >> "$GITHUB_ENV"
               echo "❌ health не позеленел за ${HEALTH_TIMEOUT}с" >&2; break
             fi
             sleep 15
@@ -218,8 +218,8 @@ jobs:
               "$SERVICE" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA" "$ENVIRONMENT")"
           else
             REASON="${FAIL_REASON:-сборка упала на шаге до выкатки}"
-            T="$(printf '❌ %s · не докатилось: %s\n<a href="%s">%s</a>\nХост откатил. <a href="%s">Смотреть сборку</a> · %s' \
-              "$SERVICE" "$REASON" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA")"
+            T="$(printf '❌ %s · не докатилось: %s\n<a href="%s">%s</a>\n<a href="%s">сборка</a> · %s · %s' \
+              "$SERVICE" "$REASON" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA" "$ENVIRONMENT")"
           fi
           curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageText" \
             --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode message_id="$MID" \
