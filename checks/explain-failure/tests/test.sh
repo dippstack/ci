@@ -24,6 +24,7 @@ case "${STUB_MODE:-ok}" in
   fake-slug) printf 'Что-то упало.\nпохожий случай: yan/ops/выдуманная-страница\n' ;;
   noauth)    printf 'Not logged in · Please run /login\n' ;;
   empty)     printf '\n\n' ;;
+  slug-only) printf 'похожий случай: yan/ops/2026-08-red-gate\n' ;;
   slow)      sleep 5; printf 'поздно\n' ;;
 esac
 EOF
@@ -53,6 +54,10 @@ grep -q 'humanize stub' "$tmp/prompt" || true   # скилл идёт систе
 # 2. Модель назвала slug не из выдачи — вторую строку не печатаем.
 out="$(STUB_MODE=fake-slug GBRAIN_SOURCE=yan run)"
 [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] && ok "выдуманный slug отброшен" || bad "выдуманный slug прошёл: $out"
+
+# 2б. Модель ответила только строкой «похожий случай» — без предложения вывод пуст.
+out="$(STUB_MODE=slug-only GBRAIN_SOURCE=yan run)"; rc=$?
+[ -z "$out" ] && [ "$rc" = 0 ] && ok "только slug без предложения → пусто" || bad "slug-only: rc=$rc out=$out"
 
 # 3. Без GBRAIN_SOURCE брейн не трогаем, одна строка.
 rm -f "$tmp/gcalled"

@@ -89,7 +89,8 @@ RAW="$(printf '%s' "$PROMPT" | tmo "$TIMEOUT" claude -p --model "$MODEL" --tools
         --no-session-persistence --output-format text --append-system-prompt "$SYS" 2>/dev/null \
         | tr -d '\r' | sed -E '/^[[:space:]]*$/d')" || RAW=""
 case "$RAW" in *"Not logged in"*|*"Invalid API key"*|*"API Error"*) log "claude не авторизован: ${RAW:0:120}"; RAW="";; esac
-SENTENCE="$(printf '%s\n' "$RAW" | head -n 1)"
+# Предложение — первая строка, которая не «похожий случай: …»: голый slug вместо причины не печатаем.
+SENTENCE="$(printf '%s\n' "$RAW" | grep -v '^[[:space:]]*похожий случай:' | head -n 1)"
 [ -n "$SENTENCE" ] || { log "модель не ответила за ${TIMEOUT}с — без модели"; exit 0; }
 [ "${#SENTENCE}" -le 400 ] || SENTENCE="${SENTENCE:0:399}…"
 printf '%s\n' "$SENTENCE"
