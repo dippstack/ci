@@ -189,7 +189,7 @@ jobs:
           exit 1
 
       - name: итог → Телеграм (правим тот же тред)
-        if: ${{ !cancelled() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_DEVSUPPORT_CHAT != '' && steps.notify.outputs.mid != '' }}
+        if: ${{ !cancelled() && steps.notify.outputs.mid != '' }}   # mid есть — значит токен и чат были
         run: |
           if [ "${{ job.status }}" = success ]; then T="✅ $SERVICE → $ENVIRONMENT: готово ($WHAT)"
           else T="❌ $SERVICE → $ENVIRONMENT: упало, откат на хосте — $RUN_URL"; fi
