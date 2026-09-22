@@ -102,11 +102,9 @@ jobs:
           RAW_TITLE="$(git log -1 --format=%s "$SHA")"
           TITLE="$(printf '%s' "$RAW_TITLE" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
           echo "TITLE=$TITLE" >> "$GITHUB_ENV"
-          if PR_NUM="$(printf '%s' "$RAW_TITLE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')" && [ -n "$PR_NUM" ]; then
-            echo "LINK=$REPO_URL/pull/$PR_NUM" >> "$GITHUB_ENV"
-          else
-            echo "LINK=$REPO_URL/commit/$SHA" >> "$GITHUB_ENV"
-          fi
+          PR_NUM="$(printf '%s' "$RAW_TITLE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')"
+          if [ -n "$PR_NUM" ]; then LINK="$REPO_URL/pull/$PR_NUM"; else LINK="$REPO_URL/commit/$SHA"; fi
+          echo "LINK=$LINK" >> "$GITHUB_ENV"
 
       - name: секреты из env (единственный источник, грепом + маска)
         run: |
