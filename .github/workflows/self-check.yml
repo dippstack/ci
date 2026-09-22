@@ -68,3 +68,9 @@ jobs:
         run: |
           python3 -m pip install -q -e . pytest
           python3 -m pytest -q tests/
+
+      - name: explain-failure — контракт «модель необязательна» и shellcheck
+        run: |
+          # Стабы claude/gbrain на PATH, без сети: две строки на успех, пусто и rc 0 при любой беде.
+          bash checks/explain-failure/tests/test.sh
+          shellcheck -S warning checks/explain-failure/explain.sh checks/explain-failure/tests/test.sh

@@ -112,6 +112,7 @@ jobs:
           fi
           TITLE="$(printf '%s' "$RAW_TITLE" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
           echo "TITLE=$TITLE" >> "$GITHUB_ENV"
+          echo "RAW_TITLE=$RAW_TITLE" >> "$GITHUB_ENV"   # без экранирования — для причины моделью
           echo "LINK=$LINK" >> "$GITHUB_ENV"
           echo "NUM_PREFIX=$NUM_PREFIX" >> "$GITHUB_ENV"
           # Окружение в строку не выводим, если оно дефолтное (dev).
@@ -141,7 +142,9 @@ jobs:
           fi
           # Значение до инлайн-комментария (в примерах ключи описаны прямо в строке), без хвостовых пробелов и кавычек.
           get(){ grep -m1 "^$1=" "$VAULT_ENV" 2>/dev/null | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^["'"'"']//; s/["'"'"']$//'; }
-          for k in REGISTRY_HOST REGISTRY_USER REGISTRY_PASS TELEGRAM_BOT_TOKEN TELEGRAM_DEVSUPPORT_CHAT TELEGRAM_DEVSUPPORT_THREAD; do
+          # GBRAIN_SOURCE (yan | ais | marketplace) — брейн проекта, в котором причина ошибки ищет
+          # похожий случай; сам адрес брейна берётся на раннере из ~/.config/dippstack/brains.env.
+          for k in REGISTRY_HOST REGISTRY_USER REGISTRY_PASS TELEGRAM_BOT_TOKEN TELEGRAM_DEVSUPPORT_CHAT TELEGRAM_DEVSUPPORT_THREAD GBRAIN_SOURCE; do
             v="$(get "$k")"; [ -n "$v" ] || continue
             case "$k" in REGISTRY_PASS|TELEGRAM_BOT_TOKEN) echo "::add-mask::$v";; esac
             echo "$k=$v" >> "$GITHUB_ENV"
@@ -171,7 +174,12 @@ jobs:
         id: build
         if: ${{ inputs.driver == 'kamal' }}
         run: |
-          echo "FAIL_REASON=Сборка образа упала." >> "$GITHUB_ENV"
+          # Причина ошибки — двумя частями: FAIL_WHAT (что случилось технически; итог-шаг заменит
+          # её предложением модели, если та ответит) и PROD_STATE — состояние прода фразой закрытого
+          # словаря (dippstack/ais#781): «Прод не тронут.» / «Прод на прежней версии.» / честное
+          # «неизвестно». Читатель узнаёт фразу, а не разбирает её.
+          echo "FAIL_WHAT=Сборка образа упала." >> "$GITHUB_ENV"
+          echo "PROD_STATE=Прод не тронут." >> "$GITHUB_ENV"
           REF="$REGISTRY_HOST/$IMAGE_NAME"
           echo "$REGISTRY_PASS" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USER" --password-stdin
           docker build -f "$DOCKERFILE" -t "$REF:$SHORT_SHA" -t "$REF:latest" "$BUILD_CONTEXT"
@@ -181,7 +189,8 @@ jobs:
       - name: kamal deploy (zero-downtime + health + авто-откат)
         if: ${{ inputs.driver == 'kamal' }}
         run: |
-          echo "FAIL_REASON=Kamal deploy упал." >> "$GITHUB_ENV"
+          echo "FAIL_WHAT=Kamal deploy упал." >> "$GITHUB_ENV"
+          echo "PROD_STATE=Прод на прежней версии: kamal не переключает трафик без зелёного health." >> "$GITHUB_ENV"
           command -v kamal >/dev/null || gem install kamal
           kamal deploy -c "$KAMAL_CONFIG"
 
@@ -192,7 +201,8 @@ jobs:
       - name: deploy/autodeploy.sh на хосте (отцепленно)
         if: ${{ inputs.driver == 'script' }}
         run: |
-          echo "FAIL_REASON=Не удалось запустить выкатку на хосте по ssh." >> "$GITHUB_ENV"   # health-шаг перепишет, если дойдёт
+          echo "FAIL_WHAT=Не удалось запустить выкатку на хосте по ssh." >> "$GITHUB_ENV"   # health-шаг перепишет, если дойдёт
+          echo "PROD_STATE=Прод не тронут." >> "$GITHUB_ENV"
           run(){ if [ -n "$DEPLOY_HOST" ]; then ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "bash -lc $(printf %q "$1")"; else bash -lc "$1"; fi; }
           echo "→ ${DEPLOY_HOST:-локально ($(hostname -s))}: $DEPLOY_DIR/deploy/autodeploy.sh (лог: ~/.deliver/$LOG_NAME.log)"
           # Второй экземпляр поверх таймера НЕ проверяем тут pgrep'ом: строка поиска попадала
@@ -219,11 +229,17 @@ jobs:
             if run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; then rc=0; else rc=$?; fi
             case $rc in
               0) echo "✅ health: $SERVICE на $SHORT_SHA"; exit 0 ;;
-              2) echo "FAIL_REASON=Хост отверг коммит: проверка на хосте красная, прод остался на прежнем." >> "$GITHUB_ENV"
+              2) echo "FAIL_WHAT=Хост отверг коммит: проверка на хосте красная." >> "$GITHUB_ENV"
+                 echo "PROD_STATE=Прод на прежней версии." >> "$GITHUB_ENV"
                  echo "❌ хост отверг $SHORT_SHA (гейт/флап-гард) — см. лог ниже" >&2; break ;;
             esac
             if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-              echo "FAIL_REASON=Сервис не поднялся за $((HEALTH_TIMEOUT / 60)) минут, хост откатывает сам по смоуку." >> "$GITHUB_ENV"
+              # Ждали меньше минуты — говорим в секундах, а не «за 0 минут».
+              if [ "$HEALTH_TIMEOUT" -ge 60 ]; then WAITED="$((HEALTH_TIMEOUT / 60)) минут"; else WAITED="${HEALTH_TIMEOUT} секунд"; fi
+              echo "FAIL_WHAT=Сервис не подтвердил этот коммит за $WAITED." >> "$GITHUB_ENV"
+              # Обрыв ssh и «ещё не доехало» здесь неразличимы, откат хоста мы не видели —
+              # обещать его нельзя, честнее сказать, что состояние неизвестно.
+              echo "PROD_STATE=Состояние прода неизвестно: хост откатывает сам по смоуку, подтверждения нет." >> "$GITHUB_ENV"
               echo "❌ health не позеленел за ${HEALTH_TIMEOUT}с" >&2; break
             fi
             sleep 15
@@ -235,15 +251,32 @@ jobs:
             TAIL_OUT="$(run "tail -n 40 ~/.deliver/$LOG_NAME.log 2>/dev/null || echo '(лога нет: скрипт не стартовал или писал в другое место)'")" || true
             printf '%s\n' "$TAIL_OUT"
             # Хвост для итогового сообщения в Телеграм: последние 12 строк в файл, итог-шаг читает.
-            printf '%s\n' "$TAIL_OUT" | tail -n 12 > "$RUNNER_TEMP/host-tail.txt"
+            # Цвета ANSI из журнала хоста в Телеграм и модели не нужны.
+            printf '%s\n' "$TAIL_OUT" | sed -E $'s/\e\\[[0-9;]*[A-Za-z]//g' | tail -n 12 > "$RUNNER_TEMP/host-tail.txt"
           fi
           exit 1
+
+      # Причина ошибки словами (dippstack/ais#784): хвост журнала и заголовок → claude -p со скиллом
+      # humanize на раннере, похожий случай из брейна проекта. Модели нет или не успела — выходы
+      # пустые, итог покажет техническую причину и хвост, как раньше. Ограничено по времени.
+      - name: причина ошибки словами (модель на раннере)
+        id: explain
+        if: ${{ failure() && steps.notify.outputs.mid != '' }}
+        uses: dippstack/ci/checks/explain-failure@main
+        with:
+          title: ${{ env.RAW_TITLE }}
+          reason: ${{ env.FAIL_WHAT }}
+          tail-file: ${{ runner.temp }}/host-tail.txt
+          brain-source: ${{ env.GBRAIN_SOURCE }}
+          timeout: "60"
 
       - name: итог → Телеграм (правим старт; при ошибке — новым сообщением-ответом)
         if: ${{ !cancelled() && steps.notify.outputs.mid != '' }}   # mid есть — значит токен и чат были
         env:
           JOB_STATUS: ${{ job.status }}
           MID: ${{ steps.notify.outputs.mid }}
+          EXPLAIN_SENTENCE: ${{ steps.explain.outputs.sentence }}
+          EXPLAIN_SIMILAR: ${{ steps.explain.outputs.similar }}
         run: |
           edit(){ # $1=text, дальше — доп. args curl (parse_mode)
             local text="$1"; shift
@@ -268,14 +301,23 @@ jobs:
             ok "$RESP" || RESP="$(edit "$T" || true)"
             ok "$RESP" || echo "::warning title=deliver $SERVICE::telegram итог не прошёл: $RESP"
           else
-            REASON="${FAIL_REASON:-Сборка упала до выкатки.}"
+            # Вторая строка курсивом: что случилось (предложение модели, иначе техническая причина)
+            # и состояние прода фразой закрытого словаря. Модель пишет без разметки — экранируем.
+            esc(){ printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+            WHAT="$(esc "${EXPLAIN_SENTENCE:-${FAIL_WHAT:-Сборка упала до выкатки.}}")"
+            REASON="$WHAT ${PROD_STATE:-Прод не тронут.}"
             ERR_LINE="$(printf '❌ <a href="%s">%s</a><a href="%s">%s%s</a>%s' \
               "$REPO_URL" "$REPO" "$RUN_URL" "$NUM_PREFIX" "$TITLE" "$ENV_SUFFIX")"
             N="$(printf '%s\n<i>%s</i>' "$ERR_LINE" "$REASON")"
+            # Свёрнутая цитата: хвост журнала хоста и, если брейн узнал такой же сбой, похожий случай.
+            QUOTE=""
             if [ -f "$RUNNER_TEMP/host-tail.txt" ]; then
-              TAIL_HTML="$(sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' "$RUNNER_TEMP/host-tail.txt")"
-              N="$(printf '%s\n<blockquote expandable><code>%s</code></blockquote>' "$N" "$TAIL_HTML")"
+              QUOTE="$(printf '<code>%s</code>' "$(esc "$(cat "$RUNNER_TEMP/host-tail.txt")")")"
             fi
+            if [ -n "$EXPLAIN_SIMILAR" ]; then
+              QUOTE="${QUOTE:+$QUOTE$'\n'}Похожий случай в брейне: <code>$(esc "$EXPLAIN_SIMILAR")</code>"
+            fi
+            [ -n "$QUOTE" ] && N="$(printf '%s\n<blockquote expandable>%s</blockquote>' "$N" "$QUOTE")"
             RESP="$(reply "$N" --data-urlencode parse_mode=HTML || true)"
             ok "$RESP" || RESP="$(reply "$N" || true)"
             ok "$RESP" || echo "::warning title=deliver $SERVICE::telegram ошибка-ответ не прошёл: $RESP"
