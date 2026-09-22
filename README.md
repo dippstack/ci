@@ -71,7 +71,7 @@ jobs:
       runner: imac              # раннер с доверенным ssh до хоста
       deploy-host: home
       deploy-dir: ~/yan
-      vault-env: /Users/imac/sandbox/yan/.vault/env/delivery.env   # TELEGRAM_TOKEN/CHAT
+      vault-env: /Users/imac/sandbox/yan/.vault/env/yan-bot.env   # TELEGRAM_BOT_TOKEN + TELEGRAM_DEVSUPPORT_CHAT/THREAD
 ```
 
 ## Рецепты
@@ -95,8 +95,12 @@ jobs:
   откатом; `driver: script` — по ssh отцепленно (`nohup`) запустить `deploy/autodeploy.sh`
   продукта и ждать `deploy/health.sh <sha>` (rc 0 доехало, 1 ещё нет, 2 хост отверг этот
   SHA — красный сразу); `driver: watch` — только ждать health, когда таймер на узле нельзя
-  дублировать. Телеграм: «выкатываю» до, правка на «готово / упало» после; токен и чат из
-  `vault-env` на раннере, нет файла — предупреждение и прогон молча. Раннер — вход `runner`.
+  дублировать. Телеграм — одна форма на флот: в env бота проекта лежат `TELEGRAM_BOT_TOKEN`,
+  `TELEGRAM_SUPPORT_CHAT/THREAD` (группа поддержки пользователей) и
+  `TELEGRAM_DEVSUPPORT_CHAT/THREAD` (дев-саппорт: выкатки, алерты, CI); указано — есть,
+  пусто — молчим. Шлюз пишет в devsupport: «выкатываю» до, правка на «готово / упало» после;
+  токен и чат из `vault-env` на раннере, нет файла — предупреждение и прогон молча. Раннер —
+  вход `runner`.
 - **`checks/own-runner`** — правило 1 канона CI: ни одного облачного раннера GitHub.
   Композитное действие, стоит первым шагом во всех рецептах выше и в `self-check`: грепает
   `.github/workflows` вызывающей репы на `ubuntu-*`, `macos-*`, `windows-*` (комментарии не
