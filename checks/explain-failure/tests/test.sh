@@ -74,6 +74,10 @@ mv "$tmp/tok.bak" "$HOME/.config/dippstack/claude-oauth.env"
 out="$(PATH="/usr/bin:/bin" STUB_MODE=ok GBRAIN_SOURCE=yan run)"; rc=$?
 [ -z "$out" ] && [ "$rc" = 0 ] && ok "нет claude → пусто, rc 0" || bad "no-claude: rc=$rc out=$out"
 
+# 4б. Голый env без HOME — тоже пусто и rc 0, а не «unbound variable».
+out="$(env -i PATH="/usr/bin:/bin" EXPLAIN_TITLE=t EXPLAIN_REASON=r bash "$HERE/explain.sh" 2>/dev/null)"; rc=$?
+[ -z "$out" ] && [ "$rc" = 0 ] && ok "без HOME → пусто, rc 0" || bad "no-home: rc=$rc out=$out"
+
 # 5. Хвоста нет — модель всё равно зовётся, промпт говорит «(хвоста нет)».
 out="$(STUB_MODE=ok STUB_PROMPT_FILE="$tmp/prompt2" EXPLAIN_TAIL="$tmp/nope.txt" GBRAIN_SOURCE='' run)"
 grep -q '(хвоста нет)' "$tmp/prompt2" && [ -n "$out" ] && ok "без файла хвоста — модель зовётся с пометкой" || bad "no-tail: $out"

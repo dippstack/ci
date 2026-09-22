@@ -26,6 +26,8 @@ log(){ printf 'explain-failure: %s\n' "$*" >&2; }
 # coreutils timeout есть на обоих раннерах (на маке из brew); нет — зовём без ограничения.
 tmo(){ if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi; }
 
+# Без HOME (голый env в контейнере) токена и бинаря всё равно нет — выходим тихо, не падаем на set -u.
+: "${HOME:=/nonexistent}"
 PATH="$HOME/.local/bin:$PATH"
 command -v claude >/dev/null 2>&1 || { log "claude не найден — без модели"; exit 0; }
 if [ -f "$HOME/.config/dippstack/claude-oauth.env" ]; then
