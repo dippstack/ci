@@ -18,7 +18,8 @@ name: deliver
 #            замена: если таймер уже катит, скрипт скажет «пропуск тика», и health дождётся.
 #   watch  — ничего не запускать, только дождаться health (узел без flock: второй гейт поверх
 #            тика таймера снёс бы candidate-worktree).
-# Контракт с репо продукта для script/watch: deploy/autodeploy.sh и deploy/health.sh <sha>.
+# Контракт с репо продукта для script/watch: deploy/autodeploy.sh (держит СВОЙ flock -n: второй
+# экземпляр поверх таймера выходит «пропуском», а не ждёт и не ломает) и deploy/health.sh <sha>.
 # health.sh: rc 0 = доехало (этот SHA или новее), rc 1 = ещё нет (ждём), rc 2 = хост уже
 # отверг этот SHA (флап-гард, гейт красный) — ждать нечего, красный сразу.
 # Скрипт остаётся ЕДИНСТВЕННЫМ путём выкатки (канон CI, правило 5): таймер на хосте и этот
@@ -60,13 +61,22 @@ jobs:
       DEPLOY_HOST: ${{ inputs.deploy-host }}
       DEPLOY_DIR: ${{ inputs.deploy-dir }}
       HEALTH_TIMEOUT: ${{ inputs.health-timeout }}
+      IMAGE_NAME: ${{ inputs.image-name }}
+      DOCKERFILE: ${{ inputs.dockerfile }}
+      KAMAL_CONFIG: ${{ inputs.kamal-config }}
+      BUILD_CONTEXT: ${{ inputs.build-context }}
       SHA: ${{ github.sha }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      # Чекаут: kamal собирает образ из репо; script/watch — только .github для own-runner.
+      # Чекаут: kamal собирает образ из репо (полный); script/watch — только .github для own-runner.
+      # Два шага, а не тернарник `cond && '' || '.github'`: в выражениях Actions пустая строка
+      # falsy, и kamal получил бы обрезанный чекаут без Dockerfile.
       - uses: actions/checkout@v4
+        if: ${{ inputs.driver == 'kamal' }}
+      - uses: actions/checkout@v4
+        if: ${{ inputs.driver != 'kamal' }}
         with:
-          sparse-checkout: ${{ inputs.driver == 'kamal' && '' || '.github' }}
+          sparse-checkout: .github
 
       - name: канон CI — только свои раннеры
         uses: dippstack/ci/checks/own-runner@main
@@ -74,13 +84,17 @@ jobs:
       - name: входы драйвера
         run: |
           case "$DRIVER" in
-            kamal)  [ -n "${{ inputs.image-name }}" ] && [ -n "${{ inputs.dockerfile }}" ] && [ -n "${{ inputs.kamal-config }}" ] \
+            kamal)  [ -n "$IMAGE_NAME" ] && [ -n "$DOCKERFILE" ] && [ -n "$KAMAL_CONFIG" ] \
                       || { echo "driver=kamal: нужны image-name, dockerfile, kamal-config" >&2; exit 1; } ;;
             script|watch) [ -n "$DEPLOY_DIR" ] || { echo "driver=$DRIVER: нужен deploy-dir" >&2; exit 1; } ;;
             *) echo "неизвестный driver: $DRIVER (kamal | script | watch)" >&2; exit 1 ;;
           esac
+          # health-timeout идёт в $(( )), поэтому только цифры; и не выше потолка джобы (60 мин),
+          # иначе вместо «health не позеленел» с хвостом лога будет безликий обрыв по timeout-minutes.
+          case "$HEALTH_TIMEOUT" in ''|*[!0-9]*) echo "health-timeout должен быть числом секунд: '$HEALTH_TIMEOUT'" >&2; exit 1;; esac
+          [ "$HEALTH_TIMEOUT" -le 3000 ] || { echo "health-timeout $HEALTH_TIMEOUT > 3000с — выше потолка джобы" >&2; exit 1; }
           echo "SHORT_SHA=${SHA:0:7}" >> "$GITHUB_ENV"
-          echo "LOG_NAME=${SERVICE//\//-}" >> "$GITHUB_ENV"        # marketspace/home → marketspace-home
+          echo "LOG_NAME=$(printf %s "$SERVICE" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_ENV"   # marketspace/home → marketspace-home
 
       - name: секреты из .vault (единственный источник, грепом + маска)
         run: |
@@ -101,17 +115,18 @@ jobs:
         id: build
         if: ${{ inputs.driver == 'kamal' }}
         run: |
-          REF="$REGISTRY_HOST/${{ inputs.image-name }}"
+          REF="$REGISTRY_HOST/$IMAGE_NAME"
           echo "$REGISTRY_PASS" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USER" --password-stdin
-          docker build -f "${{ inputs.dockerfile }}" -t "$REF:$SHORT_SHA" -t "$REF:latest" "${{ inputs.build-context }}"
+          docker build -f "$DOCKERFILE" -t "$REF:$SHORT_SHA" -t "$REF:latest" "$BUILD_CONTEXT"
           docker push "$REF:$SHORT_SHA"; docker push "$REF:latest"
           echo "ref=$REF:$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "WHAT=$REF:$SHORT_SHA" >> "$GITHUB_ENV"
 
       - name: «выкатываю» → Телеграм
         id: notify
         if: ${{ env.TELEGRAM_TOKEN != '' }}
         run: |
-          WHAT="${{ steps.build.outputs.ref }}"; [ -n "$WHAT" ] || WHAT="$SHORT_SHA"
+          [ -n "${WHAT:-}" ] || echo "WHAT=$SHORT_SHA" >> "$GITHUB_ENV"; WHAT="${WHAT:-$SHORT_SHA}"
           RESP=$(curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             --data-urlencode chat_id="$TELEGRAM_CHAT" --data-urlencode text="🚀 $SERVICE → $ENVIRONMENT: выкатываю $WHAT")
           echo "mid=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("result",{}).get("message_id",""))')" >> "$GITHUB_OUTPUT"
@@ -120,7 +135,7 @@ jobs:
         if: ${{ inputs.driver == 'kamal' }}
         run: |
           command -v kamal >/dev/null || gem install kamal
-          kamal deploy -c "${{ inputs.kamal-config }}"
+          kamal deploy -c "$KAMAL_CONFIG"
 
       # Один и тот же login-shell на хосте и на раннере (PATH из профиля: node, docker, make).
       # Деплой — отцепленно: nohup + лог в $HOME/.deliver/<service>.log на хосте, ssh возвращается
@@ -131,14 +146,13 @@ jobs:
         run: |
           run(){ if [ -n "$DEPLOY_HOST" ]; then ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "bash -lc $(printf %q "$1")"; else bash -lc "$1"; fi; }
           echo "→ ${DEPLOY_HOST:-локально ($(hostname -s))}: $DEPLOY_DIR/deploy/autodeploy.sh (лог: ~/.deliver/$LOG_NAME.log)"
-          # Уже бежит (таймер катит, сборка висит на замке) — второй экземпляр не запускаем: у yan
-          # он ждал бы замок 600с и пометил бы НАШ target как failed (прогон 35439161405, 19.09),
-          # хотя хост просто ещё занят. Health ниже дождётся результата того, что уже бежит.
+          # Второй экземпляр поверх таймера НЕ проверяем тут pgrep'ом: строка поиска попадала
+          # в argv нашей же login-оболочки на хосте, гард срабатывал всегда, и script молча
+          # вырождался в watch. Сериализация — дело самого autodeploy.sh (flock -n внутри, часть
+          # контракта): бежит таймер → наш экземпляр скажет «пропуск» и выйдет, health дождётся.
           # Запуск — отдельной строкой, а не хвостом «a && b && nohup c &»: там & уходит на всю
-          # цепочку, фоновая подоболочка наследует stdout ssh-сессии и держит её открытой, пока
-          # бежит autodeploy (шаг yan висел 30 минут, прогон 35439161405).
+          # цепочку, фоновая подоболочка наследует stdout ssh-сессии и держит её открытой.
           SCRIPT="$(printf '%s\n' \
-            "if pgrep -f 'bash deploy/autodeploy.sh' >/dev/null 2>&1; then echo 'autodeploy уже бежит на хосте — не дублирую, жду health'; exit 0; fi" \
             "mkdir -p ~/.deliver" \
             "cd $DEPLOY_DIR || exit 1" \
             "nohup bash deploy/autodeploy.sh >> ~/.deliver/$LOG_NAME.log 2>&1 </dev/null &" \
@@ -161,21 +175,19 @@ jobs:
             [ "$(date +%s)" -lt "$DEADLINE" ] || { echo "❌ health не позеленел за ${HEALTH_TIMEOUT}с" >&2; break; }
             sleep 15
           done
-          echo "--- хвост ~/.deliver/$LOG_NAME.log на хосте ---"
-          run "tail -n 40 ~/.deliver/$LOG_NAME.log 2>/dev/null" || true
+          if [ "$DRIVER" = watch ]; then
+            echo "driver=watch: шлюз ничего не запускал — смотри журнал таймера на узле $DEPLOY_DIR"
+          else
+            echo "--- хвост ~/.deliver/$LOG_NAME.log на хосте (лог нашего запуска; катил таймер — смотри его журнал) ---"
+            run "tail -n 40 ~/.deliver/$LOG_NAME.log 2>/dev/null || echo '(лога нет: скрипт не стартовал или писал в другое место)'" || true
+          fi
           exit 1
 
-      - name: «готово» → Телеграм (правим тот же тред)
-        if: ${{ success() && env.TELEGRAM_TOKEN != '' && steps.notify.outputs.mid != '' }}
+      - name: итог → Телеграм (правим тот же тред)
+        if: ${{ !cancelled() && env.TELEGRAM_TOKEN != '' && steps.notify.outputs.mid != '' }}
         run: |
-          WHAT="${{ steps.build.outputs.ref }}"; [ -n "$WHAT" ] || WHAT="$SHORT_SHA"
+          if [ "${{ job.status }}" = success ]; then T="✅ $SERVICE → $ENVIRONMENT: готово ($WHAT)"
+          else T="❌ $SERVICE → $ENVIRONMENT: упало, откат на хосте — $RUN_URL"; fi
           curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_TOKEN/editMessageText" \
             --data-urlencode chat_id="$TELEGRAM_CHAT" --data-urlencode message_id="${{ steps.notify.outputs.mid }}" \
-            --data-urlencode text="✅ $SERVICE → $ENVIRONMENT: готово ($WHAT)"
-
-      - name: «упало» → Телеграм (откат сделал сам хост)
-        if: ${{ failure() && env.TELEGRAM_TOKEN != '' && steps.notify.outputs.mid != '' }}
-        run: |
-          curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_TOKEN/editMessageText" \
-            --data-urlencode chat_id="$TELEGRAM_CHAT" --data-urlencode message_id="${{ steps.notify.outputs.mid }}" \
-            --data-urlencode text="❌ $SERVICE → $ENVIRONMENT: упало, откат на хосте — $RUN_URL"
+            --data-urlencode text="$T"
