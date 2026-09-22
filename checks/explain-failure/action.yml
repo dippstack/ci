@@ -5,7 +5,7 @@ inputs:
   reason:       { description: "техническая причина из шлюза, одна строка", required: true }
   tail-file:    { description: "файл с хвостом журнала хоста (может не существовать)", default: "" }
   brain-source: { description: "GBRAIN_SOURCE проекта (yan | ais | marketplace); пусто = без брейна", default: "" }
-  timeout:      { description: "секунд на ответ модели", default: "60" }
+  timeout:      { description: "секунд на ответ модели", default: "30" }
 outputs:
   sentence:
     description: "одно предложение «что случилось»; пусто = модели не было"
@@ -25,9 +25,5 @@ runs:
         GBRAIN_SOURCE: ${{ inputs.brain-source }}
         EXPLAIN_TIMEOUT: ${{ inputs.timeout }}
       run: |
-        out="$(bash "${{ github.action_path }}/explain.sh")" || out=""
-        sentence="$(printf '%s\n' "$out" | sed -n 1p)"
-        similar="$(printf '%s\n' "$out" | sed -n 's/^похожий случай: //p' | head -n 1)"
-        [ -n "$sentence" ] && echo "модель: $sentence" || echo "модели нет — шлюз покажет техническую причину"
-        [ -n "$similar" ] && echo "похожий случай: $similar"
-        { echo "sentence=$sentence"; echo "similar=$similar"; } >> "$GITHUB_OUTPUT"
+        # Скрипт сам пишет sentence= и similar= в GITHUB_OUTPUT; stdout — те же строки для журнала джобы.
+        bash "${{ github.action_path }}/explain.sh" || true

@@ -20,10 +20,13 @@ cat > "$tmp/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 cat > "${STUB_PROMPT_FILE:-/dev/null}"
 [ -n "${STUB_ENV_FILE:-}" ] && env > "$STUB_ENV_FILE"
+[ -n "${STUB_ARGS_FILE:-}" ] && printf '%s\n' "$@" > "$STUB_ARGS_FILE"
 case "${STUB_MODE:-ok}" in
   ok)        printf 'Слой 15_sku_pnl.sql не применился: column "net_price" does not exist.\nпохожий случай: yan/ops/2026-08-red-gate\n' ;;
   fake-slug) printf 'Что-то упало.\nпохожий случай: yan/ops/выдуманная-страница\n' ;;
   noauth)    printf 'Not logged in · Please run /login\n' ;;
+  apierr)    printf 'Сервис упал: в логе API Error 403 от реестра.\n' ;;
+  rc1)       echo "boom" >&2; exit 1 ;;
   empty)     printf '\n\n' ;;
   slug-only) printf 'похожий случай: yan/ops/2026-08-red-gate\n' ;;
   slow)      sleep 5; printf 'поздно\n' ;;
@@ -51,10 +54,16 @@ out="$(STUB_MODE=ok STUB_PROMPT_FILE="$tmp/prompt" STUB_GBRAIN_CALLED="$tmp/gcal
 [ -f "$tmp/gcalled" ] && ok "брейн спрошен при GBRAIN_SOURCE" || bad "брейн не спрошен"
 if grep -q $'\e' "$tmp/prompt"; then bad "ANSI уехал в промпт"; else ok "ANSI вычищен из хвоста"; fi
 grep -q 'net_price' "$tmp/prompt" && ok "хвост дошёл до модели" || bad "хвоста нет в промпте"
+out="$(STUB_MODE=ok STUB_ARGS_FILE="$tmp/args" GITHUB_OUTPUT="$tmp/gh-out" GBRAIN_SOURCE=yan run)"
+grep -qx -- '--strict-mcp-config' "$tmp/args" && grep -qx -- '--tools' "$tmp/args" && ok "модель без инструментов и без MCP" || bad "флаги claude: $(tr '\n' ' ' < "$tmp/args")"
+grep -qx 'sentence=Слой 15_sku_pnl.sql не применился: column "net_price" does not exist.' "$tmp/gh-out" && grep -qx 'similar=yan/ops/2026-08-red-gate' "$tmp/gh-out" && ok "GITHUB_OUTPUT: sentence= и similar=" || bad "GITHUB_OUTPUT: $(cat "$tmp/gh-out")"
+out="$(STUB_MODE=apierr GBRAIN_SOURCE=yan run)"
+[ "$out" = 'Сервис упал: в логе API Error 403 от реестра.' ] && ok "«API Error» в тексте предложения не принимается за отказ claude" || bad "apierr: $out"
+out="$(STUB_MODE=ok GBRAIN_SOURCE=ais/prod run)"; rc=$?
+[ "$rc" = 0 ] && [ -n "$out" ] && ok "кривой GBRAIN_SOURCE (ais/prod) не роняет скрипт" || bad "bad-source: rc=$rc out=$out err=$(cat "$tmp/err")"
 grep -q 'курс ЦБ' "$tmp/gcalled" && ok "запрос к брейну не порезан по байтам" || bad "запрос к брейну: $(cat "$tmp/gcalled")"
 out="$(STUB_MODE=ok STUB_ENV_FILE="$tmp/env" GBRAIN_SOURCE=yan run)"
 if grep -q '^BRAIN_YAN_URL=' "$tmp/env"; then bad "DSN брейна утёк в окружение claude"; else ok "DSN брейна не в окружении claude"; fi
-grep -q 'humanize stub' "$tmp/prompt" || true   # скилл идёт системным промптом, в stdin его нет
 
 # 2. Модель назвала slug не из выдачи — вторую строку не печатаем.
 out="$(STUB_MODE=fake-slug GBRAIN_SOURCE=yan run)"
@@ -73,6 +82,8 @@ out="$(STUB_MODE=ok STUB_GBRAIN_CALLED="$tmp/gcalled" GBRAIN_SOURCE='' run)"
 # 4. Беды → пусто, rc 0.
 out="$(STUB_MODE=noauth GBRAIN_SOURCE=yan run)"; rc=$?
 [ -z "$out" ] && [ "$rc" = 0 ] && ok "«Not logged in» → пусто, rc 0" || bad "noauth: rc=$rc out=$out"
+out="$(STUB_MODE=rc1 GBRAIN_SOURCE=yan run)"; rc=$?
+[ -z "$out" ] && [ "$rc" = 0 ] && grep -q 'rc≠0: boom' "$tmp/err" && ok "claude rc 1 → пусто, rc 0, stderr в журнале" || bad "rc1: rc=$rc out=$out err=$(cat "$tmp/err")"
 out="$(STUB_MODE=empty GBRAIN_SOURCE=yan run)"; rc=$?
 [ -z "$out" ] && [ "$rc" = 0 ] && ok "пустой ответ → пусто, rc 0" || bad "empty: rc=$rc out=$out"
 out="$(STUB_MODE=slow EXPLAIN_TIMEOUT=1 GBRAIN_SOURCE=yan run)"; rc=$?

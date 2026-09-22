@@ -190,7 +190,8 @@ jobs:
         if: ${{ inputs.driver == 'kamal' }}
         run: |
           echo "FAIL_WHAT=Kamal deploy упал." >> "$GITHUB_ENV"
-          echo "PROD_STATE=Прод на прежней версии." >> "$GITHUB_ENV"   # kamal не переключает трафик без зелёного health
+          # kamal падает и после переключения трафика (чистка, второй хост) — обещать «прежнюю версию» нельзя.
+          echo "PROD_STATE=Состояние прода неизвестно: kamal откатывает сам по health, подтверждения нет." >> "$GITHUB_ENV"
           command -v kamal >/dev/null || gem install kamal
           kamal deploy -c "$KAMAL_CONFIG"
 
@@ -268,7 +269,6 @@ jobs:
           reason: ${{ env.FAIL_WHAT }}
           tail-file: ${{ runner.temp }}/host-tail.txt
           brain-source: ${{ env.GBRAIN_SOURCE }}
-          timeout: "60"
 
       - name: итог → Телеграм (правим старт; при ошибке — новым сообщением-ответом)
         if: ${{ !cancelled() && steps.notify.outputs.mid != '' }}   # mid есть — значит токен и чат были
