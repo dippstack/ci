@@ -88,8 +88,8 @@ out="$(PATH="/usr/bin:/bin" STUB_MODE=ok GBRAIN_SOURCE=yan run)"; rc=$?
 out="$(env -i PATH="/usr/bin:/bin" EXPLAIN_TITLE=t EXPLAIN_REASON=r bash "$HERE/explain.sh" 2>/dev/null)"; rc=$?
 [ -z "$out" ] && [ "$rc" = 0 ] && ok "без HOME → пусто, rc 0" || bad "no-home: rc=$rc out=$out"
 
-# 5. Хвоста нет — модель всё равно зовётся, промпт говорит «(хвоста нет)».
-out="$(STUB_MODE=ok STUB_PROMPT_FILE="$tmp/prompt2" EXPLAIN_TAIL="$tmp/nope.txt" GBRAIN_SOURCE='' run)"
-grep -q '(хвоста нет)' "$tmp/prompt2" && [ -n "$out" ] && ok "без файла хвоста — модель зовётся с пометкой" || bad "no-tail: $out"
+# 5. Хвоста нет (kamal) — модели нечего объяснять: пусто, rc 0, claude не зовётся.
+out="$(STUB_MODE=ok STUB_PROMPT_FILE="$tmp/prompt2" EXPLAIN_TAIL="$tmp/nope.txt" GBRAIN_SOURCE='' run)"; rc=$?
+[ -z "$out" ] && [ "$rc" = 0 ] && [ ! -f "$tmp/prompt2" ] && ok "без хвоста → пусто, модель не зовётся" || bad "no-tail: rc=$rc out=$out"
 
 [ "$fail" = 0 ] && echo "explain-failure: OK" || { echo "explain-failure: FAIL"; exit 1; }
