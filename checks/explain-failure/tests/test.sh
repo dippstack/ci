@@ -33,7 +33,7 @@ EOF
 cat > "$tmp/bin/gbrain" <<'EOF'
 #!/usr/bin/env bash
 : > "${STUB_GBRAIN_CALLED:-/dev/null}"
-[ -n "${STUB_GBRAIN_CALLED:-}" ] && printf '%s\n' "$3" > "$STUB_GBRAIN_CALLED"
+[ -n "${STUB_GBRAIN_CALLED:-}" ] && printf '%s\n' "$2" > "$STUB_GBRAIN_CALLED"
 printf '[0.8460] yan/ops/2026-08-red-gate -- красный гейт: слой sku_pnl, колонка net_price\n[0.8100] yan/meta/backlog -- бэклог\n'
 EOF
 chmod +x "$tmp/bin/claude" "$tmp/bin/gbrain"
