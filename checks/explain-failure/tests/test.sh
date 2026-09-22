@@ -22,13 +22,15 @@ cat > "${STUB_PROMPT_FILE:-/dev/null}"
 [ -n "${STUB_ENV_FILE:-}" ] && env > "$STUB_ENV_FILE"
 [ -n "${STUB_ARGS_FILE:-}" ] && printf '%s\n' "$@" > "$STUB_ARGS_FILE"
 case "${STUB_MODE:-ok}" in
-  ok)        printf 'Слой 15_sku_pnl.sql не применился: column "net_price" does not exist.\nпохожий случай: yan/ops/2026-08-red-gate\n' ;;
-  fake-slug) printf 'Что-то упало.\nпохожий случай: yan/ops/выдуманная-страница\n' ;;
+  ok)        printf 'ПРИЧИНА: Слой 15_sku_pnl.sql не применился: column "net_price" does not exist.\nПОХОЖИЙ: yan/ops/2026-08-red-gate\n' ;;
+  fake-slug) printf 'ПРИЧИНА: Что-то упало.\nПОХОЖИЙ: yan/ops/выдуманная-страница\n' ;;
+  preamble)  printf 'Проверю память на похожие случаи сбоя.\n**Tool: BashOutput**\n**ПРИЧИНА:** Слой упал.\n' ;;
+  nomarker)  printf 'Проверю память на похожие случаи сбоя.\n' ;;
   noauth)    printf 'Not logged in · Please run /login\n' ;;
-  apierr)    printf 'Сервис упал: в логе API Error 403 от реестра.\n' ;;
+  apierr)    printf 'ПРИЧИНА: Сервис упал: в логе API Error 403 от реестра.\n' ;;
   rc1)       echo "boom" >&2; exit 1 ;;
   empty)     printf '\n\n' ;;
-  slug-only) printf 'похожий случай: yan/ops/2026-08-red-gate\n' ;;
+  slug-only) printf 'ПОХОЖИЙ: yan/ops/2026-08-red-gate\n' ;;
   slow)      sleep 5; printf 'поздно\n' ;;
 esac
 EOF
@@ -56,6 +58,11 @@ if grep -q $'\e' "$tmp/prompt"; then bad "ANSI уехал в промпт"; else
 grep -q 'net_price' "$tmp/prompt" && ok "хвост дошёл до модели" || bad "хвоста нет в промпте"
 out="$(STUB_MODE=ok STUB_ARGS_FILE="$tmp/args" GITHUB_OUTPUT="$tmp/gh-out" GBRAIN_SOURCE=yan run)"
 grep -qx -- '--strict-mcp-config' "$tmp/args" && grep -qx -- '--tools' "$tmp/args" && ok "модель без инструментов и без MCP" || bad "флаги claude: $(tr '\n' ' ' < "$tmp/args")"
+grep -qx -- '--system-prompt' "$tmp/args" && ! grep -qx -- '--append-system-prompt' "$tmp/args" && ok "штатный системный промпт заменён, не дополнен" || bad "system-prompt: $(tr '\n' ' ' < "$tmp/args")"
+out="$(STUB_MODE=preamble GBRAIN_SOURCE=yan run)"
+[ "$out" = 'Слой упал.' ] && ok "преамбула и маркер инструмента отброшены, взята строка ПРИЧИНА" || bad "preamble: $out"
+out="$(STUB_MODE=nomarker GBRAIN_SOURCE=yan run)"; rc=$?
+[ -z "$out" ] && [ "$rc" = 0 ] && ok "ответ без маркера ПРИЧИНА → пусто" || bad "nomarker: rc=$rc out=$out"
 grep -qx 'sentence=Слой 15_sku_pnl.sql не применился: column "net_price" does not exist.' "$tmp/gh-out" && grep -qx 'similar=yan/ops/2026-08-red-gate' "$tmp/gh-out" && ok "GITHUB_OUTPUT: sentence= и similar=" || bad "GITHUB_OUTPUT: $(cat "$tmp/gh-out")"
 out="$(STUB_MODE=apierr GBRAIN_SOURCE=yan run)"
 [ "$out" = 'Сервис упал: в логе API Error 403 от реестра.' ] && ok "«API Error» в тексте предложения не принимается за отказ claude" || bad "apierr: $out"
