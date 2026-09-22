@@ -72,7 +72,7 @@ jobs:
       # Чекаут: kamal собирает образ из репо (полный); script/watch — только .github для own-runner.
       # Два шага, а не тернарник `cond && '' || '.github'`: в выражениях Actions пустая строка
       # falsy, и kamal получил бы обрезанный чекаут без Dockerfile.
-      # fetch-depth: 2 — нужен родитель SHA для счётчика строк (git diff --shortstat);
+      # Глубина чекаута два коммита: нужен родитель для счётчика строк (git diff --shortstat);
       # sparse-checkout объекты истории не режет, второй коммит доезжает.
       - uses: actions/checkout@v4
         if: ${{ inputs.driver == 'kamal' }}
@@ -148,8 +148,9 @@ jobs:
         id: notify
         if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_DEVSUPPORT_CHAT != '' }}
         run: |
-          TEXT="$(printf '🚀 %s · выкатываю · <a href="%s">%s</a>%s%s\n<a href="%s">%s</a>' \
-            "$SERVICE" "$RUN_URL" "$SHORT_SHA" "$STAT" "$ENV_SUFFIX" "$LINK" "$TITLE")"
+          # SHA человеку ничего не говорит: ссылка на прогон — словом «сборка», коммит виден в названии.
+          TEXT="$(printf '🚀 %s · выкатываю%s%s · <a href="%s">сборка</a>\n<a href="%s">%s</a>' \
+            "$SERVICE" "$STAT" "$ENV_SUFFIX" "$RUN_URL" "$LINK" "$TITLE")"
           RESP=$(curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" \
             ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
@@ -233,12 +234,12 @@ jobs:
           MID: ${{ steps.notify.outputs.mid }}
         run: |
           if [ "$JOB_STATUS" = success ]; then
-            T="$(printf '✅ %s · выкачено · <a href="%s">%s</a>%s%s\n<a href="%s">%s</a>' \
-              "$SERVICE" "$RUN_URL" "$SHORT_SHA" "$STAT" "$ENV_SUFFIX" "$LINK" "$TITLE")"
+            T="$(printf '✅ %s · выкачено%s%s · <a href="%s">сборка</a>\n<a href="%s">%s</a>' \
+              "$SERVICE" "$STAT" "$ENV_SUFFIX" "$RUN_URL" "$LINK" "$TITLE")"
           else
             REASON="${FAIL_REASON:-Сборка упала до выкатки.}"
-            T="$(printf '❌ %s · не докатилось · <a href="%s">%s</a>%s%s\n<a href="%s">%s</a>\n%s' \
-              "$SERVICE" "$RUN_URL" "$SHORT_SHA" "$STAT" "$ENV_SUFFIX" "$LINK" "$TITLE" "$REASON")"
+            T="$(printf '❌ %s · не докатилось%s%s · <a href="%s">сборка</a>\n<a href="%s">%s</a>\n%s' \
+              "$SERVICE" "$STAT" "$ENV_SUFFIX" "$RUN_URL" "$LINK" "$TITLE" "$REASON")"
           fi
           curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageText" \
             --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode message_id="$MID" \
