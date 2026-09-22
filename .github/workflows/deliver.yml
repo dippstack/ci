@@ -98,14 +98,14 @@ jobs:
           echo "SHORT_SHA=${SHA:0:7}" >> "$GITHUB_ENV"
           echo "LOG_NAME=$(printf %s "$SERVICE" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_ENV"   # marketspace/home → marketspace-home
           # Заголовок коммита для чипа сообщения: `(#N)` в конце — squash-мерж PR, тогда ссылка
-          # на PR и «#N · » впереди (сам «(#N)» из заголовка убираем, номер уже есть ссылкой);
+          # на PR и «#N » впереди (сам «(#N)» из заголовка убираем, номер уже есть ссылкой);
           # иначе ссылка на сам коммит, без номера. HTML-экранируем один раз тут.
           RAW_TITLE="$(git log -1 --format=%s "$SHA")"
           PR_NUM="$(printf '%s' "$RAW_TITLE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')"
           if [ -n "$PR_NUM" ]; then
             RAW_TITLE="$(printf '%s' "$RAW_TITLE" | sed -E 's/ \(#[0-9]+\)$//')"
             LINK="$REPO_URL/pull/$PR_NUM"
-            NUM_PREFIX="#$PR_NUM · "
+            NUM_PREFIX="#$PR_NUM "
           else
             LINK="$REPO_URL/commit/$SHA"
             NUM_PREFIX=""
