@@ -67,6 +67,7 @@ jobs:
       BUILD_CONTEXT: ${{ inputs.build-context }}
       SHA: ${{ github.sha }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      REPO_URL: ${{ github.server_url }}/${{ github.repository }}
     steps:
       # Чекаут: kamal собирает образ из репо (полный); script/watch — только .github для own-runner.
       # Два шага, а не тернарник `cond && '' || '.github'`: в выражениях Actions пустая строка
@@ -95,6 +96,17 @@ jobs:
           [ "$HEALTH_TIMEOUT" -le 3000 ] || { echo "health-timeout $HEALTH_TIMEOUT > 3000с — выше потолка джобы" >&2; exit 1; }
           echo "SHORT_SHA=${SHA:0:7}" >> "$GITHUB_ENV"
           echo "LOG_NAME=$(printf %s "$SERVICE" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_ENV"   # marketspace/home → marketspace-home
+          # Заголовок коммита для сообщения в Телеграм: HTML-экранируем один раз тут,
+          # дальше подставляем как есть. `(#N)` в конце — squash-мерж PR, тогда ссылка на PR,
+          # иначе на сам коммит.
+          RAW_TITLE="$(git log -1 --format=%s "$SHA")"
+          TITLE="$(printf '%s' "$RAW_TITLE" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+          echo "TITLE=$TITLE" >> "$GITHUB_ENV"
+          if PR_NUM="$(printf '%s' "$RAW_TITLE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')" && [ -n "$PR_NUM" ]; then
+            echo "LINK=$REPO_URL/pull/$PR_NUM" >> "$GITHUB_ENV"
+          else
+            echo "LINK=$REPO_URL/commit/$SHA" >> "$GITHUB_ENV"
+          fi
 
       - name: секреты из env (единственный источник, грепом + маска)
         run: |
@@ -119,27 +131,30 @@ jobs:
         id: build
         if: ${{ inputs.driver == 'kamal' }}
         run: |
+          echo "FAIL_REASON=сборка образа упала" >> "$GITHUB_ENV"
           REF="$REGISTRY_HOST/$IMAGE_NAME"
           echo "$REGISTRY_PASS" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USER" --password-stdin
           docker build -f "$DOCKERFILE" -t "$REF:$SHORT_SHA" -t "$REF:latest" "$BUILD_CONTEXT"
           docker push "$REF:$SHORT_SHA"; docker push "$REF:latest"
           echo "ref=$REF:$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          echo "WHAT=$REF:$SHORT_SHA" >> "$GITHUB_ENV"
 
       - name: «выкатываю» → Телеграм
         id: notify
         if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_DEVSUPPORT_CHAT != '' }}
         run: |
-          [ -n "${WHAT:-}" ] || echo "WHAT=$SHORT_SHA" >> "$GITHUB_ENV"; WHAT="${WHAT:-$SHORT_SHA}"
+          TEXT="$(printf '🚀 %s · выкатываю\n<a href="%s">%s</a>\n<a href="%s">сборка</a> · %s · %s' \
+            "$SERVICE" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA" "$ENVIRONMENT")"
           RESP=$(curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" \
             ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
-            --data-urlencode text="🚀 $SERVICE → $ENVIRONMENT: выкатываю $WHAT")
+            --data-urlencode parse_mode=HTML --data-urlencode disable_web_page_preview=true \
+            --data-urlencode text="$TEXT")
           echo "mid=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("result",{}).get("message_id",""))')" >> "$GITHUB_OUTPUT"
 
       - name: kamal deploy (zero-downtime + health + авто-откат)
         if: ${{ inputs.driver == 'kamal' }}
         run: |
+          echo "FAIL_REASON=kamal deploy упал" >> "$GITHUB_ENV"
           command -v kamal >/dev/null || gem install kamal
           kamal deploy -c "$KAMAL_CONFIG"
 
@@ -176,9 +191,13 @@ jobs:
             if run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; then rc=0; else rc=$?; fi
             case $rc in
               0) echo "✅ health: $SERVICE на $SHORT_SHA"; exit 0 ;;
-              2) echo "❌ хост отверг $SHORT_SHA (гейт/флап-гард) — см. лог ниже" >&2; break ;;
+              2) echo "FAIL_REASON=хост отверг коммит (гейт или флап-гард красный)" >> "$GITHUB_ENV"
+                 echo "❌ хост отверг $SHORT_SHA (гейт/флап-гард) — см. лог ниже" >&2; break ;;
             esac
-            [ "$(date +%s)" -lt "$DEADLINE" ] || { echo "❌ health не позеленел за ${HEALTH_TIMEOUT}с" >&2; break; }
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "FAIL_REASON=сервис не поднялся за $((HEALTH_TIMEOUT / 60)) мин" >> "$GITHUB_ENV"
+              echo "❌ health не позеленел за ${HEALTH_TIMEOUT}с" >&2; break
+            fi
             sleep 15
           done
           if [ "$DRIVER" = watch ]; then
@@ -191,9 +210,19 @@ jobs:
 
       - name: итог → Телеграм (правим тот же тред)
         if: ${{ !cancelled() && steps.notify.outputs.mid != '' }}   # mid есть — значит токен и чат были
+        env:
+          JOB_STATUS: ${{ job.status }}
+          MID: ${{ steps.notify.outputs.mid }}
         run: |
-          if [ "${{ job.status }}" = success ]; then T="✅ $SERVICE → $ENVIRONMENT: готово ($WHAT)"
-          else T="❌ $SERVICE → $ENVIRONMENT: упало, откат на хосте — $RUN_URL"; fi
+          if [ "$JOB_STATUS" = success ]; then
+            T="$(printf '✅ %s · выкачено\n<a href="%s">%s</a>\n<a href="%s">сборка</a> · %s · %s' \
+              "$SERVICE" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA" "$ENVIRONMENT")"
+          else
+            REASON="${FAIL_REASON:-сборка упала на шаге до выкатки}"
+            T="$(printf '❌ %s · не докатилось: %s\n<a href="%s">%s</a>\nХост откатил. <a href="%s">Смотреть сборку</a> · %s' \
+              "$SERVICE" "$REASON" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA")"
+          fi
           curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageText" \
-            --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode message_id="${{ steps.notify.outputs.mid }}" \
+            --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode message_id="$MID" \
+            --data-urlencode parse_mode=HTML --data-urlencode disable_web_page_preview=true \
             --data-urlencode text="$T"
