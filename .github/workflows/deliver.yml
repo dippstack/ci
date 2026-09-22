@@ -38,7 +38,7 @@ on:
       environment:    { type: string, default: "dev" }   # dev=авто, prod=только руками (гейт у caller'а)
       runner:         { type: string, default: "home" }  # метка орг-раннера: home | imac
       driver:         { type: string, default: "kamal" } # kamal | script | watch
-      vault-env:      { type: string, default: "" }      # путь к .vault-env НА РАННЕРЕ (REGISTRY_*, TELEGRAM_*); пусто = без Телеграма
+      vault-env:      { type: string, default: "" }      # путь к env НА РАННЕРЕ (REGISTRY_*, TELEGRAM_BOT_TOKEN + TELEGRAM_DEVSUPPORT_CHAT/THREAD); пусто = без Телеграма
       # — драйвер kamal —
       image-name:     { type: string, default: "" }      # bot-engine
       build-context:  { type: string, default: "." }
@@ -96,18 +96,21 @@ jobs:
           echo "SHORT_SHA=${SHA:0:7}" >> "$GITHUB_ENV"
           echo "LOG_NAME=$(printf %s "$SERVICE" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_ENV"   # marketspace/home → marketspace-home
 
-      - name: секреты из .vault (единственный источник, грепом + маска)
+      - name: секреты из env (единственный источник, грепом + маска)
         run: |
+          # Для script/watch это env бота продукта: <проект>/.vault/env/<проект>-bot.env
+          # (там же живут токены самого бота). Для kamal — delivery.env с REGISTRY_* и теми
+          # же ключами Телеграма.
           if [ ! -f "$VAULT_ENV" ]; then
-            # Образному пути без реестра не жить; скриптовому без .vault-env — только без Телеграма.
-            [ "$DRIVER" = kamal ] && { echo "нет .vault-env: $VAULT_ENV" >&2; exit 1; }
-            echo "::warning title=deliver $SERVICE::нет .vault-env (${VAULT_ENV:-не задан}) — прогон без сообщений в Телеграм"
+            # Образному пути без реестра не жить; скриптовому без env — только без Телеграма.
+            [ "$DRIVER" = kamal ] && { echo "нет env: $VAULT_ENV" >&2; exit 1; }
+            echo "::warning title=deliver $SERVICE::нет env (${VAULT_ENV:-не задан}) — прогон без сообщений в Телеграм"
             exit 0
           fi
           get(){ grep -m1 "^$1=" "$VAULT_ENV" 2>/dev/null | cut -d= -f2- | sed 's/^["'"'"']//;s/["'"'"']$//'; }
-          for k in REGISTRY_HOST REGISTRY_USER REGISTRY_PASS TELEGRAM_TOKEN TELEGRAM_CHAT; do
+          for k in REGISTRY_HOST REGISTRY_USER REGISTRY_PASS TELEGRAM_BOT_TOKEN TELEGRAM_DEVSUPPORT_CHAT TELEGRAM_DEVSUPPORT_THREAD; do
             v="$(get "$k")"; [ -n "$v" ] || continue
-            case "$k" in REGISTRY_PASS|TELEGRAM_TOKEN) echo "::add-mask::$v";; esac
+            case "$k" in REGISTRY_PASS|TELEGRAM_BOT_TOKEN) echo "::add-mask::$v";; esac
             echo "$k=$v" >> "$GITHUB_ENV"
           done
 
@@ -124,11 +127,13 @@ jobs:
 
       - name: «выкатываю» → Телеграм
         id: notify
-        if: ${{ env.TELEGRAM_TOKEN != '' }}
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_DEVSUPPORT_CHAT != '' }}
         run: |
           [ -n "${WHAT:-}" ] || echo "WHAT=$SHORT_SHA" >> "$GITHUB_ENV"; WHAT="${WHAT:-$SHORT_SHA}"
-          RESP=$(curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
-            --data-urlencode chat_id="$TELEGRAM_CHAT" --data-urlencode text="🚀 $SERVICE → $ENVIRONMENT: выкатываю $WHAT")
+          RESP=$(curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" \
+            ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
+            --data-urlencode text="🚀 $SERVICE → $ENVIRONMENT: выкатываю $WHAT")
           echo "mid=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("result",{}).get("message_id",""))')" >> "$GITHUB_OUTPUT"
 
       - name: kamal deploy (zero-downtime + health + авто-откат)
@@ -184,10 +189,10 @@ jobs:
           exit 1
 
       - name: итог → Телеграм (правим тот же тред)
-        if: ${{ !cancelled() && env.TELEGRAM_TOKEN != '' && steps.notify.outputs.mid != '' }}
+        if: ${{ !cancelled() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_DEVSUPPORT_CHAT != '' && steps.notify.outputs.mid != '' }}
         run: |
           if [ "${{ job.status }}" = success ]; then T="✅ $SERVICE → $ENVIRONMENT: готово ($WHAT)"
           else T="❌ $SERVICE → $ENVIRONMENT: упало, откат на хосте — $RUN_URL"; fi
-          curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_TOKEN/editMessageText" \
-            --data-urlencode chat_id="$TELEGRAM_CHAT" --data-urlencode message_id="${{ steps.notify.outputs.mid }}" \
+          curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageText" \
+            --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode message_id="${{ steps.notify.outputs.mid }}" \
             --data-urlencode text="$T"
