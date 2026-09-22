@@ -147,7 +147,8 @@ jobs:
           get(){ grep -m1 "^$1=" "$VAULT_ENV" 2>/dev/null | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^["'"'"']//; s/["'"'"']$//'; }
           # GBRAIN_SOURCE (yan | ais | marketplace) — брейн проекта, в котором причина ошибки ищет
           # похожий случай; сам адрес брейна берётся на раннере из ~/.config/dippstack/brains.env.
-          for k in REGISTRY_HOST REGISTRY_USER REGISTRY_PASS TELEGRAM_BOT_TOKEN TELEGRAM_DEVSUPPORT_CHAT TELEGRAM_DEVSUPPORT_THREAD GBRAIN_SOURCE; do
+          # TELEGRAM_QUIET_TZ — зона читателя для ночной тишины (умолчание Europe/Moscow).
+          for k in REGISTRY_HOST REGISTRY_USER REGISTRY_PASS TELEGRAM_BOT_TOKEN TELEGRAM_DEVSUPPORT_CHAT TELEGRAM_DEVSUPPORT_THREAD GBRAIN_SOURCE TELEGRAM_QUIET_TZ; do
             v="$(get "$k")"; [ -n "$v" ] || continue
             case "$k" in REGISTRY_PASS|TELEGRAM_BOT_TOKEN) echo "::add-mask::$v";; esac
             echo "$k=$v" >> "$GITHUB_ENV"
@@ -160,10 +161,16 @@ jobs:
           # Чип как в Claude Code: репо ссылкой, вторая ссылка — на PR/коммит с номером и заголовком.
           TEXT="$(printf '🚀 <a href="%s">%s</a><a href="%s">%s%s</a>%s' \
             "$REPO_URL" "$REPO" "$LINK" "$NUM_PREFIX" "$TITLE" "$ENV_SUFFIX")"
+          # Ночью (00:00–08:00 по зоне читателя, dippstack/ais#787) старт уходит без звука: зелёный
+          # итог — правка этого же сообщения и не звонит никогда, а красный уходит ответом и звонит
+          # всегда. Час берём по TELEGRAM_QUIET_TZ, не по часам раннера: раннеры живут в разных зонах.
+          H="$(TZ="${TELEGRAM_QUIET_TZ:-Europe/Moscow}" date +%H)"; SILENT=""
+          if [ "${H#0}" -lt 8 ]; then SILENT=1; echo "ночь по ${TELEGRAM_QUIET_TZ:-Europe/Moscow} (${H}ч) — старт без звука"; fi
           send(){ # $1=extra args для parse_mode (может быть пусто)
             curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
               --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" \
               ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
+              ${SILENT:+--data-urlencode disable_notification=true} \
               --data-urlencode disable_web_page_preview=true --data-urlencode text="$TEXT" "$@"
           }
           RESP="$(send --data-urlencode parse_mode=HTML || true)"
@@ -329,3 +336,29 @@ jobs:
             ok "$RESP2" || RESP2="$(edit "$ERR_LINE" || true)"
             ok "$RESP2" || echo "::warning title=deliver $SERVICE::telegram правка старта не прошла: $RESP2"
           fi
+
+      # Сторож тишины (dippstack/ais#787): итог-шаг стоит на !cancelled(), и при отмене прогона или
+      # потолке timeout-minutes читатель остался бы с вечным 🚀. Молчание не исход: говорим, что
+      # итога нет, ответом (звонит) и правим старт на ⏳. Выкатка на хосте при этом могла идти
+      # отцепленно — состояние прода не знаем, так и пишем.
+      - name: сторож — итог не пришёл (прогон отменён или упёрся в потолок)
+        if: ${{ cancelled() && steps.notify.outputs.mid != '' }}
+        env:
+          MID: ${{ steps.notify.outputs.mid }}
+        run: |
+          tg(){ # $1=метод, дальше — данные
+            local m="$1"; shift
+            curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/$m" \
+              --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode disable_web_page_preview=true "$@"
+          }
+          ok(){ printf '%s' "$1" | grep -q '"ok":true'; }
+          LINE="$(printf '⏳ <a href="%s">%s</a><a href="%s">%s%s</a>%s' \
+            "$REPO_URL" "$REPO" "$RUN_URL" "$NUM_PREFIX" "$TITLE" "$ENV_SUFFIX")"
+          N="$(printf '%s\n<i>Итог выкатки не пришёл: прогон отменён или упёрся в потолок времени. Состояние прода неизвестно — проверить руками.</i>' "$LINE")"
+          RESP="$(tg sendMessage --data-urlencode reply_to_message_id="$MID" \
+            ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
+            --data-urlencode text="$N" --data-urlencode parse_mode=HTML || true)"
+          ok "$RESP" || RESP="$(tg sendMessage --data-urlencode reply_to_message_id="$MID" --data-urlencode text="$N" || true)"
+          ok "$RESP" || echo "::warning title=deliver $SERVICE::telegram сторож не прошёл: $RESP"
+          RESP2="$(tg editMessageText --data-urlencode message_id="$MID" --data-urlencode text="$LINE" --data-urlencode parse_mode=HTML || true)"
+          ok "$RESP2" || echo "::warning title=deliver $SERVICE::telegram правка старта на ⏳ не прошла: $RESP2"
