@@ -72,12 +72,17 @@ jobs:
       # Чекаут: kamal собирает образ из репо (полный); script/watch — только .github для own-runner.
       # Два шага, а не тернарник `cond && '' || '.github'`: в выражениях Actions пустая строка
       # falsy, и kamal получил бы обрезанный чекаут без Dockerfile.
+      # fetch-depth: 2 — нужен родитель SHA для счётчика строк (git diff --shortstat);
+      # sparse-checkout объекты истории не режет, второй коммит доезжает.
       - uses: actions/checkout@v4
         if: ${{ inputs.driver == 'kamal' }}
+        with:
+          fetch-depth: 2
       - uses: actions/checkout@v4
         if: ${{ inputs.driver != 'kamal' }}
         with:
           sparse-checkout: .github
+          fetch-depth: 2
 
       - name: канон CI — только свои раннеры
         uses: dippstack/ci/checks/own-runner@main
@@ -105,6 +110,20 @@ jobs:
           PR_NUM="$(printf '%s' "$RAW_TITLE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')"
           if [ -n "$PR_NUM" ]; then LINK="$REPO_URL/pull/$PR_NUM"; else LINK="$REPO_URL/commit/$SHA"; fi
           echo "LINK=$LINK" >> "$GITHUB_ENV"
+          # Счётчик строк для чип-формы сообщения: считаем один раз тут, старт и итог берут
+          # готовую строку. Родителя нет (первый коммит репо) — счётчик пропускаем.
+          STAT=""
+          if git rev-parse -q --verify "$SHA~1" >/dev/null 2>&1; then
+            SHORTSTAT="$(git diff --shortstat "$SHA~1" "$SHA")"
+            ADD="$(printf '%s' "$SHORTSTAT" | sed -n 's/.* \([0-9][0-9]*\) insertion.*/\1/p')"
+            DEL="$(printf '%s' "$SHORTSTAT" | sed -n 's/.* \([0-9][0-9]*\) deletion.*/\1/p')"
+            STAT=" · +${ADD:-0} −${DEL:-0}"
+          fi
+          echo "STAT=$STAT" >> "$GITHUB_ENV"
+          # Окружение в строку не выводим, если оно дефолтное (dev).
+          ENV_SUFFIX=""
+          [ "$ENVIRONMENT" = dev ] || ENV_SUFFIX=" · $ENVIRONMENT"
+          echo "ENV_SUFFIX=$ENV_SUFFIX" >> "$GITHUB_ENV"
 
       - name: секреты из env (единственный источник, грепом + маска)
         run: |
@@ -129,8 +148,8 @@ jobs:
         id: notify
         if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_DEVSUPPORT_CHAT != '' }}
         run: |
-          TEXT="$(printf '🚀 %s · выкатываю\n<a href="%s">%s</a>\n<a href="%s">сборка</a> · %s · %s' \
-            "$SERVICE" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA" "$ENVIRONMENT")"
+          TEXT="$(printf '🚀 %s · выкатываю · <a href="%s">%s</a>%s%s\n<a href="%s">%s</a>' \
+            "$SERVICE" "$RUN_URL" "$SHORT_SHA" "$STAT" "$ENV_SUFFIX" "$LINK" "$TITLE")"
           RESP=$(curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" \
             ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
@@ -142,7 +161,7 @@ jobs:
         id: build
         if: ${{ inputs.driver == 'kamal' }}
         run: |
-          echo "FAIL_REASON=сборка образа упала" >> "$GITHUB_ENV"
+          echo "FAIL_REASON=Сборка образа упала." >> "$GITHUB_ENV"
           REF="$REGISTRY_HOST/$IMAGE_NAME"
           echo "$REGISTRY_PASS" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USER" --password-stdin
           docker build -f "$DOCKERFILE" -t "$REF:$SHORT_SHA" -t "$REF:latest" "$BUILD_CONTEXT"
@@ -152,7 +171,7 @@ jobs:
       - name: kamal deploy (zero-downtime + health + авто-откат)
         if: ${{ inputs.driver == 'kamal' }}
         run: |
-          echo "FAIL_REASON=kamal deploy упал" >> "$GITHUB_ENV"
+          echo "FAIL_REASON=Kamal deploy упал." >> "$GITHUB_ENV"
           command -v kamal >/dev/null || gem install kamal
           kamal deploy -c "$KAMAL_CONFIG"
 
@@ -163,7 +182,7 @@ jobs:
       - name: deploy/autodeploy.sh на хосте (отцепленно)
         if: ${{ inputs.driver == 'script' }}
         run: |
-          echo "FAIL_REASON=не удалось запустить выкатку на хосте (ssh)" >> "$GITHUB_ENV"   # health-шаг перепишет, если дойдёт
+          echo "FAIL_REASON=Не удалось запустить выкатку на хосте по ssh." >> "$GITHUB_ENV"   # health-шаг перепишет, если дойдёт
           run(){ if [ -n "$DEPLOY_HOST" ]; then ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "bash -lc $(printf %q "$1")"; else bash -lc "$1"; fi; }
           echo "→ ${DEPLOY_HOST:-локально ($(hostname -s))}: $DEPLOY_DIR/deploy/autodeploy.sh (лог: ~/.deliver/$LOG_NAME.log)"
           # Второй экземпляр поверх таймера НЕ проверяем тут pgrep'ом: строка поиска попадала
@@ -190,11 +209,11 @@ jobs:
             if run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; then rc=0; else rc=$?; fi
             case $rc in
               0) echo "✅ health: $SERVICE на $SHORT_SHA"; exit 0 ;;
-              2) echo "FAIL_REASON=хост отверг коммит (гейт или флап-гард красный), прод остался на прежнем" >> "$GITHUB_ENV"
+              2) echo "FAIL_REASON=Хост отверг коммит: проверка на хосте красная, прод остался на прежнем." >> "$GITHUB_ENV"
                  echo "❌ хост отверг $SHORT_SHA (гейт/флап-гард) — см. лог ниже" >&2; break ;;
             esac
             if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-              echo "FAIL_REASON=сервис не поднялся за $((HEALTH_TIMEOUT / 60)) мин (смоук на хосте откатывает сам)" >> "$GITHUB_ENV"
+              echo "FAIL_REASON=Сервис не поднялся за $((HEALTH_TIMEOUT / 60)) минут, хост откатывает сам по смоуку." >> "$GITHUB_ENV"
               echo "❌ health не позеленел за ${HEALTH_TIMEOUT}с" >&2; break
             fi
             sleep 15
@@ -214,12 +233,12 @@ jobs:
           MID: ${{ steps.notify.outputs.mid }}
         run: |
           if [ "$JOB_STATUS" = success ]; then
-            T="$(printf '✅ %s · выкачено\n<a href="%s">%s</a>\n<a href="%s">сборка</a> · %s · %s' \
-              "$SERVICE" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA" "$ENVIRONMENT")"
+            T="$(printf '✅ %s · выкачено · <a href="%s">%s</a>%s%s\n<a href="%s">%s</a>' \
+              "$SERVICE" "$RUN_URL" "$SHORT_SHA" "$STAT" "$ENV_SUFFIX" "$LINK" "$TITLE")"
           else
-            REASON="${FAIL_REASON:-сборка упала на шаге до выкатки}"
-            T="$(printf '❌ %s · не докатилось: %s\n<a href="%s">%s</a>\n<a href="%s">сборка</a> · %s · %s' \
-              "$SERVICE" "$REASON" "$LINK" "$TITLE" "$RUN_URL" "$SHORT_SHA" "$ENVIRONMENT")"
+            REASON="${FAIL_REASON:-Сборка упала до выкатки.}"
+            T="$(printf '❌ %s · не докатилось · <a href="%s">%s</a>%s%s\n<a href="%s">%s</a>\n%s' \
+              "$SERVICE" "$RUN_URL" "$SHORT_SHA" "$STAT" "$ENV_SUFFIX" "$LINK" "$TITLE" "$REASON")"
           fi
           curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageText" \
             --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode message_id="$MID" \
