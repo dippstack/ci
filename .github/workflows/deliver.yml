@@ -9,7 +9,7 @@ name: deliver
 #
 # Один шлюз, три драйвера — потому что у продуктов разные реальности:
 #   kamal  — сервис едет ОБРАЗОМ: собрать → запушить в самохостируемый реестр →
-#            «выкатываю» в Телеграм → kamal deploy (zero-downtime + health + авто-откат).
+#            старт-сообщение в Телеграм → kamal deploy (zero-downtime + health + авто-откат).
 #   script — сервис катится СВОИМ скриптом на хосте (pull-модель deploy/autodeploy.sh с гейтом
 #            и откатом внутри, таймер на хосте зовёт его сам). Шлюз запускает тот же файл
 #            ОТЦЕПЛЕННО (nohup, лог на хосте) и не становится родителем деплоя: отмена джобы
@@ -66,23 +66,19 @@ jobs:
       KAMAL_CONFIG: ${{ inputs.kamal-config }}
       BUILD_CONTEXT: ${{ inputs.build-context }}
       SHA: ${{ github.sha }}
+      REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       REPO_URL: ${{ github.server_url }}/${{ github.repository }}
     steps:
       # Чекаут: kamal собирает образ из репо (полный); script/watch — только .github для own-runner.
       # Два шага, а не тернарник `cond && '' || '.github'`: в выражениях Actions пустая строка
       # falsy, и kamal получил бы обрезанный чекаут без Dockerfile.
-      # Глубина чекаута два коммита: нужен родитель для счётчика строк (git diff --shortstat);
-      # sparse-checkout объекты истории не режет, второй коммит доезжает.
       - uses: actions/checkout@v4
         if: ${{ inputs.driver == 'kamal' }}
-        with:
-          fetch-depth: 2
       - uses: actions/checkout@v4
         if: ${{ inputs.driver != 'kamal' }}
         with:
           sparse-checkout: .github
-          fetch-depth: 2
 
       - name: канон CI — только свои раннеры
         uses: dippstack/ci/checks/own-runner@main
@@ -101,29 +97,36 @@ jobs:
           [ "$HEALTH_TIMEOUT" -le 3000 ] || { echo "health-timeout $HEALTH_TIMEOUT > 3000с — выше потолка джобы" >&2; exit 1; }
           echo "SHORT_SHA=${SHA:0:7}" >> "$GITHUB_ENV"
           echo "LOG_NAME=$(printf %s "$SERVICE" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_ENV"   # marketspace/home → marketspace-home
-          # Заголовок коммита для сообщения в Телеграм: HTML-экранируем один раз тут,
-          # дальше подставляем как есть. `(#N)` в конце — squash-мерж PR, тогда ссылка на PR,
-          # иначе на сам коммит.
+          # Заголовок коммита для чипа сообщения: `(#N)` в конце — squash-мерж PR, тогда ссылка
+          # на PR и «#N · » впереди (сам «(#N)» из заголовка убираем, номер уже есть ссылкой);
+          # иначе ссылка на сам коммит, без номера. HTML-экранируем один раз тут.
           RAW_TITLE="$(git log -1 --format=%s "$SHA")"
+          PR_NUM="$(printf '%s' "$RAW_TITLE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')"
+          if [ -n "$PR_NUM" ]; then
+            RAW_TITLE="$(printf '%s' "$RAW_TITLE" | sed -E 's/ \(#[0-9]+\)$//')"
+            LINK="$REPO_URL/pull/$PR_NUM"
+            NUM_PREFIX="#$PR_NUM · "
+          else
+            LINK="$REPO_URL/commit/$SHA"
+            NUM_PREFIX=""
+          fi
           TITLE="$(printf '%s' "$RAW_TITLE" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
           echo "TITLE=$TITLE" >> "$GITHUB_ENV"
-          PR_NUM="$(printf '%s' "$RAW_TITLE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')"
-          if [ -n "$PR_NUM" ]; then LINK="$REPO_URL/pull/$PR_NUM"; else LINK="$REPO_URL/commit/$SHA"; fi
           echo "LINK=$LINK" >> "$GITHUB_ENV"
-          # Счётчик строк для чип-формы сообщения: считаем один раз тут, старт и итог берут
-          # готовую строку. Родителя нет (первый коммит репо) — счётчик пропускаем.
-          STAT=""
-          if git rev-parse -q --verify "$SHA~1" >/dev/null 2>&1; then
-            SHORTSTAT="$(git diff --shortstat "$SHA~1" "$SHA")"
-            ADD="$(printf '%s' "$SHORTSTAT" | sed -n 's/.* \([0-9][0-9]*\) insertion.*/\1/p')"
-            DEL="$(printf '%s' "$SHORTSTAT" | sed -n 's/.* \([0-9][0-9]*\) deletion.*/\1/p')"
-            STAT=" · +${ADD:-0} −${DEL:-0}"
-          fi
-          echo "STAT=$STAT" >> "$GITHUB_ENV"
+          echo "NUM_PREFIX=$NUM_PREFIX" >> "$GITHUB_ENV"
           # Окружение в строку не выводим, если оно дефолтное (dev).
           ENV_SUFFIX=""
-          [ "$ENVIRONMENT" = dev ] || ENV_SUFFIX=" · $ENVIRONMENT"
+          [ "$ENVIRONMENT" = dev ] || ENV_SUFFIX=" <code>$ENVIRONMENT</code>"
           echo "ENV_SUFFIX=$ENV_SUFFIX" >> "$GITHUB_ENV"
+          # Саммари для успеха: первый абзац тела сквош-коммита (до первой пустой строки),
+          # без строк-трейлеров (Co-authored-by и т.п.) и markdown-разметки. Пусто — цитаты нет.
+          BODY="$(git log -1 --format=%b "$SHA")"
+          PARA="$(printf '%s\n' "$BODY" | awk 'BEGIN{p=0} /^[[:space:]]*$/{ if (p) exit; next } { print; p=1 }')"
+          FILTERED="$(printf '%s\n' "$PARA" | grep -vE '^(Co-authored-by:|Co-Authored-By:|Signed-off-by:|#|🤖|Closes)' || true)"
+          SUMMARY="$(printf '%s' "$FILTERED" | tr '\n' ' ' | sed -E 's/\*\*//g; s/`//g; s/[[:space:]]+/ /g; s/^ //; s/ $//')"
+          if [ "${#SUMMARY}" -gt 600 ]; then SUMMARY="${SUMMARY:0:599}…"; fi
+          SUMMARY="$(printf '%s' "$SUMMARY" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+          echo "SUMMARY=$SUMMARY" >> "$GITHUB_ENV"
 
       - name: секреты из env (единственный источник, грепом + маска)
         run: |
@@ -144,19 +147,25 @@ jobs:
             echo "$k=$v" >> "$GITHUB_ENV"
           done
 
-      - name: «выкатываю» → Телеграм
+      - name: старт → Телеграм
         id: notify
         if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_DEVSUPPORT_CHAT != '' }}
         run: |
-          # SHA человеку ничего не говорит: ссылка на прогон — словом «сборка», коммит виден в названии.
-          TEXT="$(printf '🚀 %s · выкатываю%s%s · <a href="%s">сборка</a>\n<a href="%s">%s</a>' \
-            "$SERVICE" "$STAT" "$ENV_SUFFIX" "$RUN_URL" "$LINK" "$TITLE")"
-          RESP=$(curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-            --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" \
-            ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
-            --data-urlencode parse_mode=HTML --data-urlencode disable_web_page_preview=true \
-            --data-urlencode text="$TEXT")
-          echo "mid=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("result",{}).get("message_id",""))')" >> "$GITHUB_OUTPUT"
+          # Чип как в Claude Code: репо ссылкой, вторая ссылка — на PR/коммит с номером и заголовком.
+          TEXT="$(printf '🚀 <a href="%s">%s</a><a href="%s">%s%s</a>%s' \
+            "$REPO_URL" "$REPO" "$LINK" "$NUM_PREFIX" "$TITLE" "$ENV_SUFFIX")"
+          send(){ # $1=extra args для parse_mode (может быть пусто)
+            curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+              --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" \
+              ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
+              --data-urlencode disable_web_page_preview=true --data-urlencode text="$TEXT" "$@"
+          }
+          RESP="$(send --data-urlencode parse_mode=HTML || true)"
+          # Telegram отверг разметку — один повтор тем же текстом без parse_mode (теги будут видны как есть).
+          printf '%s' "$RESP" | grep -q '"ok":true' || RESP="$(send || true)"
+          printf '%s' "$RESP" | grep -q '"ok":true' || echo "::warning title=deliver $SERVICE::telegram старт не прошёл: $RESP"
+          MID="$(printf '%s' "$RESP" | sed -n 's/.*"message_id":\([0-9]\{1,\}\).*/\1/p' | head -n1)"
+          echo "mid=$MID" >> "$GITHUB_OUTPUT"
 
       - name: сборка + пуш в home-реестр (теги sha+latest)
         id: build
@@ -223,25 +232,55 @@ jobs:
             echo "driver=watch: шлюз ничего не запускал — смотри журнал таймера на узле $DEPLOY_DIR"
           else
             echo "--- хвост ~/.deliver/$LOG_NAME.log на хосте (лог нашего запуска; катил таймер — смотри его журнал) ---"
-            run "tail -n 40 ~/.deliver/$LOG_NAME.log 2>/dev/null || echo '(лога нет: скрипт не стартовал или писал в другое место)'" || true
+            TAIL_OUT="$(run "tail -n 40 ~/.deliver/$LOG_NAME.log 2>/dev/null || echo '(лога нет: скрипт не стартовал или писал в другое место)'")" || true
+            printf '%s\n' "$TAIL_OUT"
+            # Хвост для итогового сообщения в Телеграм: последние 12 строк в файл, итог-шаг читает.
+            printf '%s\n' "$TAIL_OUT" | tail -n 12 > "$RUNNER_TEMP/host-tail.txt"
           fi
           exit 1
 
-      - name: итог → Телеграм (правим тот же тред)
+      - name: итог → Телеграм (правим старт; при ошибке — новым сообщением-ответом)
         if: ${{ !cancelled() && steps.notify.outputs.mid != '' }}   # mid есть — значит токен и чат были
         env:
           JOB_STATUS: ${{ job.status }}
           MID: ${{ steps.notify.outputs.mid }}
         run: |
+          edit(){ # $1=text, дальше — доп. args curl (parse_mode)
+            local text="$1"; shift
+            curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageText" \
+              --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode message_id="$MID" \
+              --data-urlencode disable_web_page_preview=true --data-urlencode text="$text" "$@"
+          }
+          reply(){ # $1=text, дальше — доп. args curl (parse_mode)
+            local text="$1"; shift
+            curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+              --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode reply_to_message_id="$MID" \
+              ${TELEGRAM_DEVSUPPORT_THREAD:+--data-urlencode message_thread_id=$TELEGRAM_DEVSUPPORT_THREAD} \
+              --data-urlencode disable_web_page_preview=true --data-urlencode text="$text" "$@"
+          }
+          ok(){ printf '%s' "$1" | grep -q '"ok":true'; }
+
           if [ "$JOB_STATUS" = success ]; then
-            T="$(printf '✅ %s · выкачено%s%s · <a href="%s">сборка</a>\n<a href="%s">%s</a>' \
-              "$SERVICE" "$STAT" "$ENV_SUFFIX" "$RUN_URL" "$LINK" "$TITLE")"
+            T="$(printf '✅ <a href="%s">%s</a><a href="%s">%s%s</a>%s' \
+              "$REPO_URL" "$REPO" "$LINK" "$NUM_PREFIX" "$TITLE" "$ENV_SUFFIX")"
+            [ -n "$SUMMARY" ] && T="$(printf '%s\n<blockquote expandable>%s</blockquote>' "$T" "$SUMMARY")"
+            RESP="$(edit "$T" --data-urlencode parse_mode=HTML || true)"
+            ok "$RESP" || RESP="$(edit "$T" || true)"
+            ok "$RESP" || echo "::warning title=deliver $SERVICE::telegram итог не прошёл: $RESP"
           else
             REASON="${FAIL_REASON:-Сборка упала до выкатки.}"
-            T="$(printf '❌ %s · не докатилось%s%s · <a href="%s">сборка</a>\n<a href="%s">%s</a>\n%s' \
-              "$SERVICE" "$STAT" "$ENV_SUFFIX" "$RUN_URL" "$LINK" "$TITLE" "$REASON")"
+            ERR_LINE="$(printf '❌ <a href="%s">%s</a><a href="%s">%s%s</a>%s' \
+              "$REPO_URL" "$REPO" "$RUN_URL" "$NUM_PREFIX" "$TITLE" "$ENV_SUFFIX")"
+            N="$(printf '%s\n<i>%s</i>' "$ERR_LINE" "$REASON")"
+            if [ -f "$RUNNER_TEMP/host-tail.txt" ]; then
+              TAIL_HTML="$(sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' "$RUNNER_TEMP/host-tail.txt")"
+              N="$(printf '%s\n<blockquote expandable><code>%s</code></blockquote>' "$N" "$TAIL_HTML")"
+            fi
+            RESP="$(reply "$N" --data-urlencode parse_mode=HTML || true)"
+            ok "$RESP" || RESP="$(reply "$N" || true)"
+            ok "$RESP" || echo "::warning title=deliver $SERVICE::telegram ошибка-ответ не прошёл: $RESP"
+
+            RESP2="$(edit "$ERR_LINE" --data-urlencode parse_mode=HTML || true)"
+            ok "$RESP2" || RESP2="$(edit "$ERR_LINE" || true)"
+            ok "$RESP2" || echo "::warning title=deliver $SERVICE::telegram правка старта не прошла: $RESP2"
           fi
-          curl -s --max-time 15 "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageText" \
-            --data-urlencode chat_id="$TELEGRAM_DEVSUPPORT_CHAT" --data-urlencode message_id="$MID" \
-            --data-urlencode parse_mode=HTML --data-urlencode disable_web_page_preview=true \
-            --data-urlencode text="$T"
