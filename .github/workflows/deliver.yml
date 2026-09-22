@@ -107,7 +107,8 @@ jobs:
             echo "::warning title=deliver $SERVICE::нет env (${VAULT_ENV:-не задан}) — прогон без сообщений в Телеграм"
             exit 0
           fi
-          get(){ grep -m1 "^$1=" "$VAULT_ENV" 2>/dev/null | cut -d= -f2- | sed 's/^["'"'"']//;s/["'"'"']$//'; }
+          # Значение до инлайн-комментария (в примерах ключи описаны прямо в строке), без хвостовых пробелов и кавычек.
+          get(){ grep -m1 "^$1=" "$VAULT_ENV" 2>/dev/null | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^["'"'"']//; s/["'"'"']$//'; }
           for k in REGISTRY_HOST REGISTRY_USER REGISTRY_PASS TELEGRAM_BOT_TOKEN TELEGRAM_DEVSUPPORT_CHAT TELEGRAM_DEVSUPPORT_THREAD; do
             v="$(get "$k")"; [ -n "$v" ] || continue
             case "$k" in REGISTRY_PASS|TELEGRAM_BOT_TOKEN) echo "::add-mask::$v";; esac
