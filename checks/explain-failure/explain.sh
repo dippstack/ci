@@ -6,7 +6,7 @@
 #   EXPLAIN_REASON  техническая причина из шлюза, одна строка («Хост отверг коммит: проверка красная»)
 #   EXPLAIN_TAIL    файл с хвостом журнала хоста; может отсутствовать
 #   GBRAIN_SOURCE   yan | ais | marketplace — брейн проекта для «похожего случая»; пусто = без брейна
-#   EXPLAIN_MODEL, EXPLAIN_TIMEOUT (весь вызов модели, с), EXPLAIN_BRAIN_TIMEOUT (с) — настройки
+#   EXPLAIN_TIMEOUT секунд на ответ модели (по умолчанию 60)
 # Выход — stdout, не больше двух строк:
 #   1: одно предложение «что случилось», без разметки; состояние прода сюда НЕ входит — его
 #      добавляет шлюз фразой закрытого словаря
@@ -20,16 +20,16 @@
 # BRAIN_<SOURCE>_URL в ~/.config/dippstack/brains.env. Ничего из этого в GitHub Settings нет.
 set -uo pipefail
 TITLE="${EXPLAIN_TITLE:-}"; REASON="${EXPLAIN_REASON:-}"; TAIL_FILE="${EXPLAIN_TAIL:-}"
-SRC="${GBRAIN_SOURCE:-}"; MODEL="${EXPLAIN_MODEL:-claude-sonnet-5}"
-TIMEOUT="${EXPLAIN_TIMEOUT:-60}"; BRAIN_TIMEOUT="${EXPLAIN_BRAIN_TIMEOUT:-15}"
+SRC="${GBRAIN_SOURCE:-}"; TIMEOUT="${EXPLAIN_TIMEOUT:-60}"
+MODEL=claude-sonnet-5; BRAIN_TIMEOUT=15   # Sonnet отвечает за 5–6 с (проба 23.09), Haiku медленнее и слабее
 log(){ printf 'explain-failure: %s\n' "$*" >&2; }
-# coreutils timeout есть на обоих раннерах (на маке из brew); нет — зовём без ограничения.
-tmo(){ if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi; }
 
 # Без HOME (голый env в контейнере) токена и бинаря всё равно нет — выходим тихо, не падаем на set -u.
 : "${HOME:=/nonexistent}"
 PATH="$HOME/.local/bin:$PATH"
 command -v claude >/dev/null 2>&1 || { log "claude не найден — без модели"; exit 0; }
+# Лимит по времени — часть контракта: без coreutils timeout модель не зовём вовсе.
+command -v timeout >/dev/null 2>&1 || { log "нет timeout — без модели"; exit 0; }
 if [ -f "$HOME/.config/dippstack/claude-oauth.env" ]; then
   # shellcheck disable=SC1091
   set -a; . "$HOME/.config/dippstack/claude-oauth.env"; set +a
@@ -54,7 +54,7 @@ if [ -n "$SRC" ] && command -v gbrain >/dev/null 2>&1 && [ -f "$HOME/.config/dip
   if [ -n "$url" ]; then
     errs="$(printf '%s\n' "$TAIL" | grep -iE 'error|fail|✗|❌|красн|отка|упал|denied|refused|timeout' | tail -n 3 || true)"
     q="$(printf '%s %s %s' "$TITLE" "$REASON" "$errs" | tr '\n' ' ' | cut -c1-300)"
-    HITS="$(GBRAIN_DATABASE_URL="$url" tmo "$BRAIN_TIMEOUT" gbrain search "$q" --limit 3 --snippet-chars 240 2>/dev/null \
+    HITS="$(GBRAIN_DATABASE_URL="$url" timeout "$BRAIN_TIMEOUT" gbrain search "$q" --limit 3 --snippet-chars 240 2>/dev/null \
             | grep -E '^\[[0-9.]+\] ' || true)"
   else
     log "нет $var в brains.env — без похожего случая"
@@ -85,7 +85,7 @@ if [ -n "$HITS" ]; then
 $HITS"
 fi
 
-RAW="$(printf '%s' "$PROMPT" | tmo "$TIMEOUT" claude -p --model "$MODEL" --tools "" --max-turns 1 \
+RAW="$(printf '%s' "$PROMPT" | timeout "$TIMEOUT" claude -p --model "$MODEL" --tools "" --max-turns 1 \
         --no-session-persistence --output-format text --append-system-prompt "$SYS" 2>/dev/null \
         | tr -d '\r' | sed -E '/^[[:space:]]*$/d')" || RAW=""
 case "$RAW" in *"Not logged in"*|*"Invalid API key"*|*"API Error"*) log "claude не авторизован: ${RAW:0:120}"; RAW="";; esac

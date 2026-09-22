@@ -190,7 +190,7 @@ jobs:
         if: ${{ inputs.driver == 'kamal' }}
         run: |
           echo "FAIL_WHAT=Kamal deploy упал." >> "$GITHUB_ENV"
-          echo "PROD_STATE=Прод на прежней версии: kamal не переключает трафик без зелёного health." >> "$GITHUB_ENV"
+          echo "PROD_STATE=Прод на прежней версии." >> "$GITHUB_ENV"   # kamal не переключает трафик без зелёного health
           command -v kamal >/dev/null || gem install kamal
           kamal deploy -c "$KAMAL_CONFIG"
 
