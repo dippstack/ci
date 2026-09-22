@@ -19,6 +19,7 @@ echo '# humanize stub' > "$HOME/.claude/skills/humanize/SKILL.md"
 cat > "$tmp/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 cat > "${STUB_PROMPT_FILE:-/dev/null}"
+[ -n "${STUB_ENV_FILE:-}" ] && env > "$STUB_ENV_FILE"
 case "${STUB_MODE:-ok}" in
   ok)        printf 'Слой 15_sku_pnl.sql не применился: column "net_price" does not exist.\nпохожий случай: yan/ops/2026-08-red-gate\n' ;;
   fake-slug) printf 'Что-то упало.\nпохожий случай: yan/ops/выдуманная-страница\n' ;;
@@ -32,6 +33,7 @@ EOF
 cat > "$tmp/bin/gbrain" <<'EOF'
 #!/usr/bin/env bash
 : > "${STUB_GBRAIN_CALLED:-/dev/null}"
+[ -n "${STUB_GBRAIN_CALLED:-}" ] && printf '%s\n' "$3" > "$STUB_GBRAIN_CALLED"
 printf '[0.8460] yan/ops/2026-08-red-gate -- красный гейт: слой sku_pnl, колонка net_price\n[0.8100] yan/meta/backlog -- бэклог\n'
 EOF
 chmod +x "$tmp/bin/claude" "$tmp/bin/gbrain"
@@ -49,6 +51,9 @@ out="$(STUB_MODE=ok STUB_PROMPT_FILE="$tmp/prompt" STUB_GBRAIN_CALLED="$tmp/gcal
 [ -f "$tmp/gcalled" ] && ok "брейн спрошен при GBRAIN_SOURCE" || bad "брейн не спрошен"
 if grep -q $'\e' "$tmp/prompt"; then bad "ANSI уехал в промпт"; else ok "ANSI вычищен из хвоста"; fi
 grep -q 'net_price' "$tmp/prompt" && ok "хвост дошёл до модели" || bad "хвоста нет в промпте"
+grep -q 'курс ЦБ' "$tmp/gcalled" && ok "запрос к брейну не порезан по байтам" || bad "запрос к брейну: $(cat "$tmp/gcalled")"
+out="$(STUB_MODE=ok STUB_ENV_FILE="$tmp/env" GBRAIN_SOURCE=yan run)"
+if grep -q '^BRAIN_YAN_URL=' "$tmp/env"; then bad "DSN брейна утёк в окружение claude"; else ok "DSN брейна не в окружении claude"; fi
 grep -q 'humanize stub' "$tmp/prompt" || true   # скилл идёт системным промптом, в stdin его нет
 
 # 2. Модель назвала slug не из выдачи — вторую строку не печатаем.

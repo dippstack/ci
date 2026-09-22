@@ -47,13 +47,13 @@ fi
 # Счёт поиска не отличает «тот же сбой» от «та же тема», поэтому решает модель, а не порог.
 HITS=""
 if [ -n "$SRC" ] && command -v gbrain >/dev/null 2>&1 && [ -f "$HOME/.config/dippstack/brains.env" ]; then
-  # shellcheck disable=SC1091
-  . "$HOME/.config/dippstack/brains.env"
   var="BRAIN_$(printf '%s' "$SRC" | tr '[:lower:]-' '[:upper:]_')_URL"
-  url="${!var:-}"
+  # Адрес берём в подоболочке: brains.env экспортирует все DSN с паролями, а claude ниже они не нужны.
+  # shellcheck disable=SC1091
+  url="$( . "$HOME/.config/dippstack/brains.env"; printf '%s' "${!var:-}" )"
   if [ -n "$url" ]; then
     errs="$(printf '%s\n' "$TAIL" | grep -iE 'error|fail|✗|❌|красн|отка|упал|denied|refused|timeout' | tail -n 3 || true)"
-    q="$(printf '%s %s %s' "$TITLE" "$REASON" "$errs" | tr '\n' ' ' | cut -c1-300)"
+    q="$(printf '%s %s %s' "$TITLE" "$REASON" "$errs" | tr '\n' ' ')"   # без cut -c: он режет UTF-8 по байтам
     HITS="$(GBRAIN_DATABASE_URL="$url" timeout "$BRAIN_TIMEOUT" gbrain search "$q" --limit 3 --snippet-chars 240 2>/dev/null \
             | grep -E '^\[[0-9.]+\] ' || true)"
   else
