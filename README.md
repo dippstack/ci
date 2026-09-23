@@ -121,8 +121,9 @@ jobs:
   (dippstack/ais#788): «область: что теперь происходит» (`diff: a resumed session with edits opens
   the pane`) или просто предложение (`Add issue template for GitHub connection problems`). Без типа
   `feat(scope):` — тип читателю чата ничего не говорит, а чип в Telegram цитирует заголовок
-  сквош-коммита, то есть заголовок PR. Ловит префикс conventional commits, заглушку `task #N: slug`,
-  меньше трёх слов, точку в конце, длиннее 120 символов. Стоит во всех четырёх рецептах на
+  сквош-коммита, то есть заголовок PR. Ловит префикс conventional commits (голый тип только у слов, что областями не бывают: `feat:`,
+  `fix:`, `chore:`…; `ci:`, `docs:`, `test:` — законные области, а `ci(x):` и `ci!:` — тип), заглушку
+  `task #N: slug`, меньше трёх слов, точку в конце, длиннее 160 символов (считает символы, не байты). Стоит во всех четырёх рецептах на
   `pull_request` в режиме предупреждения (правка заголовка гейт не перезапускает, красный бы не
   отпустил); `mode: error` — по желанию репо. Тест: `bash checks/pr-title/tests/test.sh`.
 - **`ci-node.yml`** — `pnpm install --frozen-lockfile` → `pnpm typecheck` → `pnpm lint`
