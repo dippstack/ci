@@ -83,3 +83,9 @@ jobs:
           # Стабы claude/gbrain на PATH, без сети: две строки на успех, пусто и rc 0 при любой беде.
           bash checks/explain-failure/tests/test.sh
           shellcheck -S warning checks/explain-failure/explain.sh checks/explain-failure/tests/test.sh
+
+      - name: deliver.yml — старт без звука ночью и сторож «итог не пришёл» (стабы curl/date)
+        run: |
+          python3 -m pip install -q pyyaml
+          bash checks/deliver-smoke/test.sh
+          shellcheck -S warning checks/deliver-smoke/test.sh
