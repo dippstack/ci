@@ -1,0 +1,29 @@
+name: "explain-failure"
+description: "Причина ошибки выкатки словами: хвост журнала хоста и заголовок PR → claude -p со скиллом humanize на раннере, похожий случай из брейна проекта. Нет модели — пусто, шлюз показывает техническую причину и хвост (dippstack/ais#784)."
+inputs:
+  title:        { description: "заголовок PR/коммита", required: true }
+  reason:       { description: "техническая причина из шлюза, одна строка", required: true }
+  tail-file:    { description: "файл с хвостом журнала хоста (может не существовать)", default: "" }
+  brain-source: { description: "GBRAIN_SOURCE проекта (yan | ais | marketplace); пусто = без брейна", default: "" }
+  timeout:      { description: "секунд на ответ модели", default: "30" }
+outputs:
+  sentence:
+    description: "одно предложение «что случилось»; пусто = модели не было"
+    value: ${{ steps.run.outputs.sentence }}
+  similar:
+    description: "slug похожей страницы брейна; пусто = не нашлось"
+    value: ${{ steps.run.outputs.similar }}
+runs:
+  using: "composite"
+  steps:
+    - id: run
+      shell: bash
+      env:
+        EXPLAIN_TITLE: ${{ inputs.title }}
+        EXPLAIN_REASON: ${{ inputs.reason }}
+        EXPLAIN_TAIL: ${{ inputs.tail-file }}
+        GBRAIN_SOURCE: ${{ inputs.brain-source }}
+        EXPLAIN_TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        # Скрипт сам пишет sentence= и similar= в GITHUB_OUTPUT; stdout — те же строки для журнала джобы.
+        bash "${{ github.action_path }}/explain.sh" || true
