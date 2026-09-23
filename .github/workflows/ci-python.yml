@@ -51,8 +51,10 @@ jobs:
           mapfile -t all < <(git ls-files '*.sh')
           sh=()
           for f in "${all[@]}"; do
-            # shellcheck умеет только sh/bash/dash/ksh; zsh-шебанг → SC1071 (error) и
-            # роняет весь гейт. zsh-скрипты линтить нечем — пропускаем их явно.
+            # Линтер умеет только sh/bash/dash/ksh; zsh-шебанг → SC1071 (error) и роняет
+            # весь гейт. zsh-скрипты линтить нечем — пропускаем их явно. (Слово «shellcheck»
+            # в начале строки комментария не писать: он читает такую строку как свою
+            # директиву и падает на ней — SC1072/SC1073.)
             if head -1 "$f" | grep -qE '^#!.*[[:space:]/]zsh([[:space:]]|$)'; then
               echo "skip (zsh, shellcheck не поддерживает): $f"
             else

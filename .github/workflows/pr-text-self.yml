@@ -1,0 +1,19 @@
+name: pr-text-self
+# Сам dippstack/ci под тем же правилом, что раздаёт флоту. Отдельным файлом от рецепта:
+# рецепт — это `workflow_call`, его нельзя повесить на событие PR.
+#
+# Зовёт ЛОКАЛЬНЫЙ путь, а не `@v1`: на PR в этот репозиторий проверять надо ту версию рецепта,
+# которая в PR, а не ту, что уже выпущена тегом. Иначе правка рецепта проверялась бы прошлым
+# рецептом — и сломанная версия уезжала бы к потребителям зелёной.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+    branches: [main]
+
+concurrency:
+  group: pr-text-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  text:
+    uses: ./.github/workflows/pr-text.yml

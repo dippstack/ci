@@ -11,18 +11,27 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NEWSHA="${1:-$(gh api repos/dippstack/ci/commits/main --jq '.sha')}"
 echo "Бамп reusable-пина → $NEWSHA"
 
-while read -r repo stack _; do
+# Имя файла стаба берём из реестра (`stub=<файл>`), а не считаем, что он всюду `ci.yml`.
+# Раньше считали: у dippcloud стаб называется terraform-ci.yml и `gh api` на несуществующий
+# ci.yml ронял весь цикл, а у dippstack гейт вообще свой — sed молча не находил что менять
+# и открывался пустой PR. `stub=inline` — репу пропускаем, бампать в ней нечего.
+while read -r repo stack extra; do
   [ -z "${repo:-}" ] && continue
   case "$repo" in \#*) continue;; esac
-  echo "== $repo ($stack) =="
+  stub=".github/workflows/ci.yml"
+  case "${extra:-}" in
+    stub=inline) echo "== $repo ($stack) — свой гейт, не зовёт рецепт, пропуск"; continue ;;
+    stub=*)      stub="${extra#stub=}" ;;
+  esac
+  echo "== $repo ($stack, $stub) =="
   br="ci/bump-${NEWSHA:0:8}"
   base="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
   gh api -X POST "repos/$repo/git/refs" -f ref="refs/heads/$br" -f sha="$base" >/dev/null 2>&1 || true
-  cur="$(gh api "repos/$repo/contents/.github/workflows/ci.yml?ref=$br" --jq '.sha')"
-  new="$(gh api "repos/$repo/contents/.github/workflows/ci.yml?ref=$br" --jq '.content' | base64 -d \
+  cur="$(gh api "repos/$repo/contents/$stub?ref=$br" --jq '.sha')"
+  new="$(gh api "repos/$repo/contents/$stub?ref=$br" --jq '.content' | base64 -d \
         | sed -E "s#(ci-${stack}\\.yml@)[a-f0-9]+#\\1${NEWSHA}#")"
   b64="$(printf '%s' "$new" | base64 | tr -d '\n')"
-  gh api -X PUT "repos/$repo/contents/.github/workflows/ci.yml" \
+  gh api -X PUT "repos/$repo/contents/$stub" \
     -f message="ci: bump reusable pin → ${NEWSHA:0:8}" -f branch="$br" -f sha="$cur" \
     -f content="$b64" >/dev/null
   gh pr create --repo "$repo" --base main --head "$br" \
