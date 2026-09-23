@@ -14,6 +14,6 @@ jobs:
       service: deliver-selftest
       driver: script
       runner: imac
-      deploy-dir: ${{ github.workspace }}/.github/deliver-selftest
+      deploy-dir: $GITHUB_WORKSPACE/.github/deliver-selftest   # литерал: github.workspace в with: reusable пуст, шлюз подставит сам
       health-timeout: "60"
       vault-env: /Users/imac/sandbox/ais/.vault/env/ais-bot.env

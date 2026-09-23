@@ -95,6 +95,9 @@ jobs:
           # иначе вместо «health не позеленел» с хвостом лога будет безликий обрыв по timeout-minutes.
           case "$HEALTH_TIMEOUT" in ''|*[!0-9]*) echo "health-timeout должен быть числом секунд: '$HEALTH_TIMEOUT'" >&2; exit 1;; esac
           [ "$HEALTH_TIMEOUT" -le 3000 ] || { echo "health-timeout $HEALTH_TIMEOUT > 3000с — выше потолка джобы" >&2; exit 1; }
+          # deploy-dir может начинаться с литерала $GITHUB_WORKSPACE (в with: стаба выражение
+          # github.workspace пусто — контекст reusable его не даёт): подставляем путь раннера сами.
+          case "$DEPLOY_DIR" in '$GITHUB_WORKSPACE'*) DEPLOY_DIR="$GITHUB_WORKSPACE${DEPLOY_DIR#\$GITHUB_WORKSPACE}"; echo "DEPLOY_DIR=$DEPLOY_DIR" >> "$GITHUB_ENV";; esac
           echo "SHORT_SHA=${SHA:0:7}" >> "$GITHUB_ENV"
           echo "LOG_NAME=$(printf %s "$SERVICE" | tr -c 'A-Za-z0-9._-' '-')" >> "$GITHUB_ENV"   # marketspace/home → marketspace-home
           # Заголовок коммита для чипа сообщения: `(#N)` в конце — squash-мерж PR, тогда ссылка
