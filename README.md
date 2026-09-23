@@ -57,6 +57,24 @@ jobs:
     secrets: inherit
 ```
 
+**Закрывающие слова в теле PR** — отдельный стаб `.github/workflows/pr-closes.yml`, рядом
+с `ci.yml`, а не внутри него: у этого гейта свои триггеры (`edited` — чтобы правка тела
+давала зелёный без пустого коммита).
+
+```yaml
+name: pr-closes
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+    branches: [main]
+concurrency:
+  group: pr-closes-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  closes:
+    uses: dippstack/ci/.github/workflows/pr-closes.yml@v1
+```
+
 **Выкатка (deliver)** — `.github/workflows/deliver.yml@v1`, стаб `deliver.yml` в репо продукта
 на push в main. Сам контур доставки (реестр, kamal, шаблон `health.sh`, разворот на чистом
 хосте) — приватный `dippstack/delivery`; здесь только reusable-механика, потому что её зовут
@@ -172,6 +190,19 @@ jobs:
   `task #N: slug`, меньше трёх слов, точку в конце, длиннее 160 символов (считает символы, не байты). Стоит во всех четырёх рецептах на
   `pull_request` и красит гейт; чтобы правка заголовка перезапускала гейт, стаб продукта слушает
   `pull_request: types: [opened, synchronize, reopened, edited]` (см. пример подключения выше). Тест: `bash checks/pr-title/tests/test.sh`.
+- **`pr-closes.yml`** + **`checks/pr-closes`** — PR, который сделал задачу, обязан её закрыть
+  словом, которое понимает GitHub. Автозакрытие срабатывает только на английские
+  `Closes` / `Fixes` / `Resolves`; русское «Закрывает #N» для GitHub обычная ссылка, поэтому
+  PR зелёный, работа в main, а задача остаётся открытой молча — глазами это не ловится. В ais
+  так потерялись шесть сделанных задач подряд. Страж читает тело PR из события (не из чекаута:
+  тело правят без коммита) и краснеет в двух случаях: в теле есть русская закрывающая
+  формулировка без настоящего ключевого слова, или PR пришёл с ветки агентского слайса
+  (`agent/<N>-слаг` и `agent-<N>-слаг`, разделитель любой) и про её номер в теле не сказано
+  ничего. Гасят его три вещи, все видимые: `Closes #N`, честное «Не закрывает #N: <причина>»
+  для частичной работы и слайсов, и ссылка на задачу ЧУЖОГО репозитория (`dippstack/ais#N` —
+  обычный порядок флота, когда задача в ais, а правка едет в yan; на свой репозиторий такая
+  ссылка не гасит, иначе дыра вернулась бы через полное имя своего же номера). Проверки
+  стража — `checks/pr-closes/tests/`, их гоняет `self-check` этого репо.
 - **`ci-node.yml`** — `pnpm install --frozen-lockfile` → `pnpm typecheck` → `pnpm lint`
   на self-hosted `home`-раннере. Входы `node-version` (22), `pnpm-version` (10.0.0).
 
