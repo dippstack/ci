@@ -4,6 +4,8 @@ name: self-check
 #  1) приватные паттерн-файлы НИКОГДА не коммитятся сюда (имя-барьер);
 #  2) вендор-теллы не протекают в публичный код/паттерны;
 #  3) patterns-public.json парсится; тесты движка зелёные до тега.
+# Плюс проверки стража закрывающих слов: их гоняет рецепт, а не каждый потребитель — ради
+# этого страж сюда и переехал из трёх копий (dippstack/ais#831).
 on:
   pull_request:
     branches: [main]
@@ -98,3 +100,33 @@ jobs:
           python3 -m pip install -q pyyaml
           bash checks/deliver-smoke/test.sh
           shellcheck -S warning checks/deliver-smoke/test.sh
+      # Страж закрывающих слов: обе половины. Что он краснеет на потерянной задаче — половина
+      # дела; что он МОЛЧИТ там, где всё в порядке, не менее важно, иначе его начнут обходить.
+      - name: проверки стража закрывающих слов
+        run: bash checks/pr-closes/tests/test-pr-closes-guard.sh
+
+      # Проверки выше знают только скрипт. Проводку — action.yml, GITHUB_ACTION_PATH,
+      # RUNNER_TEMP, чтение тела из события — не знает никто, и опечатка в пути оставила бы
+      # self-check зелёным, а сломалось бы у потребителей после мержа. Поэтому зовём действие
+      # ЛОКАЛЬНЫМ путём (как own-runner выше: на PR в ci сам @main ещё без этой правки) на
+      # настоящем событии — на теле ЭТОГО PR. Заодно единственный репозиторий флота, который
+      # владеет стражем и жил без него, теперь им и закрыт.
+      - name: страж на своём же PR — проводка целиком
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: ./checks/pr-closes
+
+      # И обратная половина проводки: на НЕ-PR событии страж обязан краснеть, а не молчать.
+      # Без этой пары `if` выше мог бы однажды стать вечно-истинным, и гейт пропускал бы всё.
+      - name: fail-closed — на чужом событии страж краснеет
+        if: ${{ github.event_name != 'pull_request' }}
+        id: notpr
+        continue-on-error: true
+        uses: ./checks/pr-closes
+      - name: вердикт по fail-closed
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          OUTCOME: ${{ steps.notpr.outcome }}
+        run: |
+          [ "$OUTCOME" = "failure" ] && { echo "ок: на событии '$GITHUB_EVENT_NAME' страж покраснел"; exit 0; }
+          echo "::error::страж смолчал на событии '$GITHUB_EVENT_NAME' (outcome=$OUTCOME) — гейт не может покраснеть"
+          exit 1

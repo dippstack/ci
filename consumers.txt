@@ -4,9 +4,12 @@
 # Стабы зовут рецепт по подвижному тегу @v1 (канон CI 2026-09-19); bump-stubs.sh нужен
 # только там, где пин по SHA оставлен осознанно.
 # Новая репа флота → строка сюда + connect-project (штампует стаб).
-dippstack/ais                        python
-marketspace-ai/marketspace-platform  python
-yan-app/yan-monorepo                 node
+# Третье поле — дополнительные рецепты, которые репа зовёт своим стабом помимо гейта.
+# `bump-stubs.sh` его не читает (он бампает только пин ci-<stack>), это карта для человека;
+# штампует стабы `connect-project.sh` в ais, и шаблон `pr-closes.yml` лежит там же.
+dippstack/ais                        python  +pr-closes
+marketspace-ai/marketspace-platform  python  +pr-closes
+yan-app/yan-monorepo                 node    +pr-closes
 bali-smm/bali-smm-monorepo           node
 dippstack/ais-vault                  vault
 dippstack/ais-render-vault           vault
