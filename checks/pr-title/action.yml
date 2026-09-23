@@ -11,7 +11,7 @@ runs:
         PR_TITLE: ${{ inputs.title }}
         MODE: ${{ inputs.mode }}
       run: |
-        # Заголовок из env, не из ${{ }} в строке команды: чужой PR не должен выполниться как shell.
+        # Заголовок из env, не подставлен впрямую в команду: чужой PR не должен выполниться как shell.
         if out="$(bash "${{ github.action_path }}/check.sh" "$PR_TITLE")"; then
           echo "заголовок PR: $out"
         elif [ "$MODE" = error ]; then

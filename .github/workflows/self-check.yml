@@ -67,6 +67,15 @@ jobs:
         run: |
           bash checks/pr-title/tests/test.sh
           shellcheck -S warning checks/pr-title/check.sh checks/pr-title/tests/test.sh
+
+      - name: pr-title — сам экшен грузится раннером (ловит битый YAML/expression в action.yml)
+        # check.sh выше проверяет только правило; загрузку composite-экшена — только этот шаг.
+        # Именно так упал gate у всех PR флота 23.09: пустой ${{ }} в комментарии рвал парсинг
+        # action.yml, а check.sh это не видел, потому что запускался напрямую, в обход раннера.
+        uses: ./checks/pr-title
+        with:
+          title: "self-check: композитный экшен грузится без TemplateValidationException"
+          mode: error
       - name: deploy-digest — счёт, чипы, пропуск без работы
         run: |
           bash checks/deploy-digest/tests/test.sh
