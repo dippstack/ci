@@ -12,16 +12,20 @@ t="${1:-}"
 t="${t#"${t%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"   # обрезать пробелы по краям
 [ -n "$t" ] || { echo "пустой заголовок"; exit 1; }
 shopt -s nocasematch
-if [[ "$t" =~ ^(feat|fix|chore|refactor|docs?|tests?|ci|build|perf|style|revert|wip)(\([^)]*\))?!?: ]]; then
+# Регексы — в переменных: скобки внутри [[ =~ ]] bash разбирает как синтаксис.
+type_re='^(feat|fix|chore|refactor|docs?|tests?|ci|build|perf|style|revert|wip)(\([^)]*\))?!?:'
+stub_re='^task #[0-9]+:'
+if [[ "$t" =~ $type_re ]]; then
   echo "префикс типа «${BASH_REMATCH[0]}» — тип читателю ничего не говорит; напиши, что теперь происходит: «область: предложение» или просто предложение"; exit 1
 fi
-if [[ "$t" =~ ^task\ \#[0-9]+: ]]; then
+if [[ "$t" =~ $stub_re ]]; then
   echo "заглушка «task #N: slug» от dl land — дай PR человеческий заголовок до ревью"; exit 1
 fi
 shopt -u nocasematch
 body="$t"
 # «область: …» — область без пробелов и с маленькой буквы (diff, mods/agents-md, deliver); дальше само предложение.
-if [[ "$t" =~ ^([a-z0-9][a-z0-9/._-]*):\ (.+)$ ]]; then body="${BASH_REMATCH[2]}"; fi
+area_re='^([a-z0-9][a-z0-9/._-]*): (.+)$'
+if [[ "$t" =~ $area_re ]]; then body="${BASH_REMATCH[2]}"; fi
 words="$(printf '%s' "$body" | tr -s '[:space:]' '\n' | grep -c .)"
 [ "$words" -ge 3 ] || { echo "слишком коротко (${words} сл.): заголовок — предложение о том, что изменилось для читателя"; exit 1; }
 [[ "$body" != *. ]] || { echo "точка в конце не нужна"; exit 1; }
