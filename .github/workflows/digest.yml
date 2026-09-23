@@ -17,16 +17,11 @@ on:
       tz:         { type: string, default: "Europe/Moscow" }
       hour-utc:   { type: string, default: "20" }       # час расписания стаба по UTC: окно — ровно сутки до сегодняшнего такого часа
 
-permissions:
-  actions: read
-  contents: read
-
 jobs:
   digest:
     runs-on: [self-hosted, "${{ inputs.runner }}"]
     timeout-minutes: 5
     env:
-      GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       REPO_URL: ${{ github.server_url }}/${{ github.repository }}
       VAULT_ENV: ${{ inputs.vault-env }}
@@ -52,6 +47,8 @@ jobs:
 
       - name: прогоны за сутки
         id: runs
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Окно — ровно сутки между двумя часами расписания (hour-utc): [вчера HH:00, сегодня HH:00).
           # Расписание GitHub плавает на десятки минут, а окно «последние 24 часа» то рвётся, то
