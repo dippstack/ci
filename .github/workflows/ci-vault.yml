@@ -37,6 +37,15 @@ jobs:
       - name: канон CI — только свои раннеры
         uses: dippstack/ci/checks/own-runner@main
 
+      # Заголовок PR человеческим предложением (dippstack/ais#788): чип в Telegram цитирует именно его.
+      # Красный: стабы продуктов слушают pull_request с types edited — правка заголовка перезапускает гейт.
+      - name: заголовок PR — предложением, без типа
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: dippstack/ci/checks/pr-title@main
+        with:
+          title: ${{ github.event.pull_request.title }}
+          mode: error
+
       - name: скраб-секретов прозы (единый движок, tier=full)
         uses: dippstack/ci/checks/scrub-secrets@main
         with:

@@ -1,0 +1,21 @@
+name: "pr-title"
+description: "Заголовок PR человеческим предложением, как в репозитории Claude Code: «область: что теперь происходит» или просто предложение, без типа feat(scope): (dippstack/ais#788). Чип в Telegram цитирует заголовок сквош-коммита, то есть этот заголовок."
+inputs:
+  title: { description: "заголовок PR (обычно github.event.pull_request.title)", required: true }
+  mode:  { description: "warn — предупреждение в PR, гейт зелёный; error — гейт красный", default: "warn" }
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      env:
+        PR_TITLE: ${{ inputs.title }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        # Заголовок из env, не из ${{ }} в строке команды: чужой PR не должен выполниться как shell.
+        if out="$(bash "${{ github.action_path }}/check.sh" "$PR_TITLE")"; then
+          echo "заголовок PR: $out"
+        elif [ "$MODE" = error ]; then
+          echo "::error title=pr-title::$out — «$PR_TITLE»"; exit 1
+        else
+          echo "::warning title=pr-title::$out — «$PR_TITLE»"
+        fi
