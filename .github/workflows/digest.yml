@@ -2,7 +2,11 @@ name: digest
 # ПЕРЕИСПОЛЬЗУЕМЫЙ дайджест дня выкаток (workflow_call), dippstack/ais#785. Зовётся тонким стабом
 # из репо продукта по расписанию (23:00 по зоне читателя) — только там, где его включили:
 #   on: { schedule: [{ cron: "0 20 * * *" }], workflow_dispatch: }
-#   jobs: { digest: { uses: dippstack/ci/.github/workflows/digest.yml@v1, with: { runner: imac, vault-env: … } } }
+#   jobs: { digest: { permissions: { actions: read, contents: read },
+#                     uses: dippstack/ci/.github/workflows/digest.yml@v1, with: { runner: imac, vault-env: … } } }
+# Права на чтение истории прогонов выдаёт ВЫЗЫВАЮЩАЯ джоба (permissions в стабе): у самого reusable
+# блока permissions быть не должно — с ним GitHub вызов не запускает (startup_failure, ci#33), а без
+# прав в стабе gh получает 403 (ais#819).
 # Данные — история прогонов deliver этого репо за сутки (gh run list с github.token), никаких
 # журналов и сервисов. Работы за сутки не было — дайджест не шлётся (правило владельца 23.09).
 # Текст собирает checks/deploy-digest (проза с датой, репо ссылкой, красные и висящие чипами).
