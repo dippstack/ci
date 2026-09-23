@@ -15,14 +15,21 @@ echo "Бамп reusable-пина → $NEWSHA"
 # Раньше считали: у dippcloud стаб называется terraform-ci.yml и `gh api` на несуществующий
 # ci.yml ронял весь цикл, а у dippstack гейт вообще свой — sed молча не находил что менять
 # и открывался пустой PR. `stub=inline` — репу пропускаем, бампать в ней нечего.
-while read -r repo stack extra; do
+while read -r repo stack rest; do
   [ -z "${repo:-}" ] && continue
   case "$repo" in \#*) continue;; esac
+  # Поля после стека идут в любом порядке и их больше одного (`+pr-text`, `stub=...`),
+  # поэтому ищем своё, а не берём третье по счёту. Взять третье — ровно та ошибка, из-за
+  # которой этот скрипт раньше считал, что стаб всюду называется ci.yml.
   stub=".github/workflows/ci.yml"
-  case "${extra:-}" in
-    stub=inline) echo "== $repo ($stack) — свой гейт, не зовёт рецепт, пропуск"; continue ;;
-    stub=*)      stub="${extra#stub=}" ;;
-  esac
+  skip=""
+  for f in $rest; do
+    case "$f" in
+      stub=inline) skip=1 ;;
+      stub=*)      stub="${f#stub=}" ;;
+    esac
+  done
+  [ -n "$skip" ] && { echo "== $repo ($stack) — свой гейт, не зовёт рецепт, пропуск"; continue; }
   echo "== $repo ($stack, $stub) =="
   br="ci/bump-${NEWSHA:0:8}"
   base="$(gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha')"
