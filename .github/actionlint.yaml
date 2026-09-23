@@ -1,0 +1,12 @@
+# Метки своих раннеров флота. Без этого файла actionlint считает `home`, `imac` и прочие
+# неизвестными: он знает только раннеры GitHub, а мы их не используем вовсе (правило 1 канона
+# CI). Список — те же метки, по которым репы выбирают раннер орги: home/linux/docker на Linux,
+# imac/macos/xcode/simulator/maestro на мини-маке.
+self-hosted-runner:
+  labels:
+    - home
+    - imac
+    - docker
+    - xcode
+    - simulator
+    - maestro

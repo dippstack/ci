@@ -28,14 +28,9 @@ jobs:
       - name: канон CI — только свои раннеры
         uses: dippstack/ci/checks/own-runner@main
 
-      # Заголовок PR человеческим предложением (dippstack/ais#788): чип в Telegram цитирует именно его.
-      # Красный: стабы продуктов слушают pull_request с types edited — правка заголовка перезапускает гейт.
-      - name: заголовок PR — предложением, без типа
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: dippstack/ci/checks/pr-title@main
-        with:
-          title: ${{ github.event.pull_request.title }}
-          mode: error
+      # Заголовка PR тут нет намеренно: он уехал в лёгкий рецепт `pr-text.yml` вместе с
+      # проверкой закрывающего слова (dippstack/ais#845). Обе они обязаны слушать `edited`, а
+      # в этом гейте это значило бы перезапускать его целиком на каждую правку текста PR.
 
       # Единый движок скраббера (dippstack/ci/checks/scrub-secrets) вместо инлайн-git-grep.
       # Тир code-репо = core+dsn-creds (однозначные токены + DSN-с-кредами; `password=` НЕ
@@ -56,8 +51,10 @@ jobs:
           mapfile -t all < <(git ls-files '*.sh')
           sh=()
           for f in "${all[@]}"; do
-            # shellcheck умеет только sh/bash/dash/ksh; zsh-шебанг → SC1071 (error) и
-            # роняет весь гейт. zsh-скрипты линтить нечем — пропускаем их явно.
+            # Линтер умеет только sh/bash/dash/ksh; zsh-шебанг → SC1071 (error) и роняет
+            # весь гейт. zsh-скрипты линтить нечем — пропускаем их явно. (Слово «shellcheck»
+            # в начале строки комментария не писать: он читает такую строку как свою
+            # директиву и падает на ней — SC1072/SC1073.)
             if head -1 "$f" | grep -qE '^#!.*[[:space:]/]zsh([[:space:]]|$)'; then
               echo "skip (zsh, shellcheck не поддерживает): $f"
             else

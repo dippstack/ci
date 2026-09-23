@@ -11,6 +11,12 @@ runs:
         PR_TITLE: ${{ inputs.title }}
         MODE: ${{ inputs.mode }}
       run: |
+        # Fail-closed на неверной проводке, как у соседнего pr-closes. Позвали не на событии
+        # pull_request — заголовка нет, и человек прочитал бы «пустой заголовок» вместо причины.
+        if [ "${GITHUB_EVENT_NAME:-}" != "pull_request" ] && [ -z "$PR_TITLE" ]; then
+          echo "::error::pr-title зовётся на событии pull_request, а пришло '${GITHUB_EVENT_NAME:-пусто}' с пустым заголовком"
+          exit 1
+        fi
         # Заголовок из env, не подставлен впрямую в команду: чужой PR не должен выполниться как shell.
         if out="$(bash "${{ github.action_path }}/check.sh" "$PR_TITLE")"; then
           echo "заголовок PR: $out"
