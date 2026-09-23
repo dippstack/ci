@@ -22,6 +22,7 @@ name: ci
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited]   # edited — правка заголовка перезапускает гейт (pr-title)
   workflow_dispatch:
 concurrency:
   group: ci-${{ github.ref }}
@@ -124,8 +125,8 @@ jobs:
   сквош-коммита, то есть заголовок PR. Ловит префикс conventional commits (голый тип только у слов, что областями не бывают: `feat:`,
   `fix:`, `chore:`…; `ci:`, `docs:`, `test:` — законные области, а `ci(x):` и `ci!:` — тип), заглушку
   `task #N: slug`, меньше трёх слов, точку в конце, длиннее 160 символов (считает символы, не байты). Стоит во всех четырёх рецептах на
-  `pull_request` в режиме предупреждения (правка заголовка гейт не перезапускает, красный бы не
-  отпустил); `mode: error` — по желанию репо. Тест: `bash checks/pr-title/tests/test.sh`.
+  `pull_request` и красит гейт; чтобы правка заголовка перезапускала гейт, стаб продукта слушает
+  `pull_request: types: [opened, synchronize, reopened, edited]` (см. пример подключения выше). Тест: `bash checks/pr-title/tests/test.sh`.
 - **`ci-node.yml`** — `pnpm install --frozen-lockfile` → `pnpm typecheck` → `pnpm lint`
   на self-hosted `home`-раннере. Входы `node-version` (22), `pnpm-version` (10.0.0).
 

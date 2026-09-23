@@ -66,12 +66,13 @@ jobs:
         uses: dippstack/ci/checks/own-runner@main
 
       # Заголовок PR человеческим предложением (dippstack/ais#788): чип в Telegram цитирует именно его.
-      # Только предупреждение: правка заголовка не перезапускает гейт, красный тут не отпустит.
+      # Красный: стабы продуктов слушают pull_request с types edited — правка заголовка перезапускает гейт.
       - name: заголовок PR — предложением, без типа
         if: ${{ github.event_name == 'pull_request' }}
         uses: dippstack/ci/checks/pr-title@main
         with:
           title: ${{ github.event.pull_request.title }}
+          mode: error
 
       - uses: opentofu/setup-opentofu@v1
         with:
