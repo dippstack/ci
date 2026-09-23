@@ -1,29 +1,28 @@
-# Репы-потребители единого CI-гейта. Формат: owner/repo <python|node|vault|terraform> [stub=<файл>]
+# Репы-потребители единого CI-гейта. Формат: owner/repo <python|node|vault|terraform> +pr-text
 # vault = проза-волты (knowledge-корпус брейнов), гейт ci-vault.yml на tier=full.
 # terraform = инфраструктурный код (OpenTofu), гейт ci-terraform.yml.
-# Стабы зовут рецепт по подвижному тегу @v1 (канон CI 2026-09-19); bump-stubs.sh нужен
-# только там, где пин по SHA оставлен осознанно.
-# Новая репа флота → строка сюда + connect-project (штампует стаб).
+# `+pr-text` — лёгкий стаб с проверками текста PR (заголовок и закрывающее слово); стоит у всех.
+# Новая репа флота → строка сюда + connect-project (штампует стабы).
 #
-# Третье поле `stub=` — где лежит стаб, если это не `.github/workflows/ci.yml`. Его читает
-# `bump-stubs.sh`: раньше он жёстко брал `ci.yml`, тихо ничего не менял у одних и падал на
-# других. `stub=inline` — гейт в репе свой, рецепт она не зовёт, бампать нечего.
+# Стабы зовут рецепты подвижным тегом @v1 (канон CI 2026-09-19): правка рецепта доезжает
+# движением тега, массовый бамп пинов не нужен. Скрипт `bump-stubs.sh` был как раз для него и
+# удалён 2026-09-23 — он искал в стабах SHA (`ci-<stack>.yml@[a-f0-9]+`), а там давно `@v1`,
+# так что не срабатывал НИ В ОДНОЙ репе и открыл бы 14 пустых PR. Вместе с ним ушла колонка
+# `stub=`, у которой он был единственным читателем; заодно из неё исчезла строка, объявлявшая
+# dippstack/dippstack «своим гейтом» — у него три джоба, и третий зовёт ci-node.yml@v1.
 #
 # bali-smm убраны 2026-09-23: три репозитория архивированы 09-22, раннеры орги сняты.
-# `+pr-text` — лёгкий стаб с проверками текста PR (заголовок и закрывающее слово). Стоит у
-# всех четырнадцати: сверено по факту после раскатки (dippstack/ais#845), а не объявлено
-# заранее. Новая репа получает его тем же `connect-project.sh`, что и `ci.yml`.
-dippstack/ais                           python     +pr-text
-marketspace-ai/marketspace-platform     python     +pr-text
-yan-app/yan-monorepo                    node       +pr-text
-dippstack/ais-vault                     vault      +pr-text
-dippstack/ais-render-vault              vault      +pr-text
-dippstack/agent-stack-vault             vault      +pr-text
-dippstack/atlas-render-vault            vault      +pr-text
-yan-app/yan-vault                       vault      +pr-text
-yan-app/yan-product-vault               vault      +pr-text
-yan-app/yan-render-vault                vault      +pr-text
-marketspace-ai/marketspace-vault        vault      +pr-text
-marketspace-ai/marketspace-render-vault vault      +pr-text
-dippstack/dippstack                     node       +pr-text  stub=inline
-dippstack/dippcloud                     terraform  +pr-text  stub=.github/workflows/terraform-ci.yml
+dippstack/ais                           python
+marketspace-ai/marketspace-platform     python
+yan-app/yan-monorepo                    node
+dippstack/ais-vault                     vault
+dippstack/ais-render-vault              vault
+dippstack/agent-stack-vault             vault
+dippstack/atlas-render-vault            vault
+yan-app/yan-vault                       vault
+yan-app/yan-product-vault               vault
+yan-app/yan-render-vault                vault
+marketspace-ai/marketspace-vault        vault
+marketspace-ai/marketspace-render-vault vault
+dippstack/dippstack                     node
+dippstack/dippcloud                     terraform
