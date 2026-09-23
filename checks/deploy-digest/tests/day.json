@@ -1,0 +1,7 @@
+[
+ {"conclusion":"success","status":"completed","displayTitle":"Камера снова открывается на iOS 17 при добавлении фото (#603)","url":"https://github.com/yan-app/yan-monorepo/actions/runs/1","headSha":"a1","createdAt":"2026-10-10T08:00:00Z"},
+ {"conclusion":"failure","status":"completed","displayTitle":"server: гонка при повторной отправке заявки & выход (#689)","url":"https://github.com/yan-app/yan-monorepo/actions/runs/2","headSha":"b2","createdAt":"2026-10-10T09:00:00Z"},
+ {"conclusion":"cancelled","status":"completed","displayTitle":"deps: expo 54.0.3, reanimated 4.1","url":"https://github.com/yan-app/yan-monorepo/actions/runs/3","headSha":"c3","createdAt":"2026-10-10T10:00:00Z"},
+ {"conclusion":null,"status":"in_progress","displayTitle":"ещё бежит (#700)","url":"https://github.com/yan-app/yan-monorepo/actions/runs/4","headSha":"d4","createdAt":"2026-10-10T22:59:00Z"},
+ {"conclusion":"success","status":"completed","displayTitle":"mobile: три экрана онбординга (#701)","url":"https://github.com/yan-app/yan-monorepo/actions/runs/5","headSha":"e5","createdAt":"2026-10-10T11:00:00Z"}
+]
