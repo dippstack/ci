@@ -6,21 +6,22 @@
 # Новая репа флота → строка сюда + connect-project (штампует стаб).
 # Третье поле — дополнительные рецепты, которые репа зовёт своим стабом помимо гейта.
 # `bump-stubs.sh` его не читает (он бампает только пин ci-<stack>), это карта для человека;
-# штампует стабы `connect-project.sh` в ais, и шаблон `pr-closes.yml` лежит там же.
-dippstack/ais                        python  +pr-closes
-marketspace-ai/marketspace-platform  python  +pr-closes
-yan-app/yan-monorepo                 node    +pr-closes
-bali-smm/bali-smm-monorepo           node
-dippstack/ais-vault                  vault
-dippstack/ais-render-vault           vault
-dippstack/agent-stack-vault          vault
-dippstack/atlas-render-vault         vault
-yan-app/yan-vault                    vault
-yan-app/yan-product-vault            vault
-yan-app/yan-render-vault             vault
-marketspace-ai/marketspace-vault     vault
-marketspace-ai/marketspace-render-vault vault
-bali-smm/bali-smm-vault              vault
-bali-smm/bali-smm-render-vault       vault
-dippstack/dippstack                  node
-dippstack/dippcloud                  terraform
+# штампует стабы `connect-project.sh` в ais, и шаблон `pr-text.yml` лежит там же.
+# `+pr-text` — проверки текста PR (заголовок и закрывающее слово) отдельным лёгким стабом.
+# Стоит у ВСЕХ: текст PR есть у любой репы, а держать эти проверки в тяжёлом гейте значит
+# перезапускать его на каждую правку заголовка (dippstack/ais#845).
+# bali-smm убраны 2026-09-23: три репозитория архивированы 09-22, раннеры орги сняты.
+dippstack/ais                           python     +pr-text
+marketspace-ai/marketspace-platform     python     +pr-text
+yan-app/yan-monorepo                    node       +pr-text
+dippstack/ais-vault                     vault      +pr-text
+dippstack/ais-render-vault              vault      +pr-text
+dippstack/agent-stack-vault             vault      +pr-text
+dippstack/atlas-render-vault            vault      +pr-text
+yan-app/yan-vault                       vault      +pr-text
+yan-app/yan-product-vault               vault      +pr-text
+yan-app/yan-render-vault                vault      +pr-text
+marketspace-ai/marketspace-vault        vault      +pr-text
+marketspace-ai/marketspace-render-vault vault      +pr-text
+dippstack/dippstack                     node       +pr-text
+dippstack/dippcloud                     terraform  +pr-text

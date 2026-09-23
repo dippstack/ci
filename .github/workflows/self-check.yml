@@ -103,7 +103,9 @@ jobs:
       # Страж закрывающих слов: обе половины. Что он краснеет на потерянной задаче — половина
       # дела; что он МОЛЧИТ там, где всё в порядке, не менее важно, иначе его начнут обходить.
       - name: проверки стража закрывающих слов
-        run: bash checks/pr-closes/tests/test-pr-closes-guard.sh
+        run: |
+          bash checks/pr-closes/tests/test-pr-closes-guard.sh
+          shellcheck -S warning checks/pr-closes/pr-closes-guard.sh checks/pr-closes/tests/test-pr-closes-guard.sh
 
       # Проверки выше знают только скрипт. Проводку — action.yml, GITHUB_ACTION_PATH,
       # RUNNER_TEMP, чтение тела из события — не знает никто, и опечатка в пути оставила бы

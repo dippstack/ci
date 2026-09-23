@@ -22,7 +22,6 @@ name: ci
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, edited]   # edited — правка заголовка перезапускает гейт (pr-title)
   workflow_dispatch:
 concurrency:
   group: ci-${{ github.ref }}
@@ -57,22 +56,23 @@ jobs:
     secrets: inherit
 ```
 
-**Закрывающие слова в теле PR** — отдельный стаб `.github/workflows/pr-closes.yml`, рядом
-с `ci.yml`, а не внутри него: у этого гейта свои триггеры (`edited` — чтобы правка тела
-давала зелёный без пустого коммита).
+**Текст PR — заголовок и закрывающее слово** — отдельный стаб
+`.github/workflows/pr-text.yml`, рядом с `ci.yml`, а не внутри него. Этот гейт обязан слушать
+`edited` (текст правят без коммита), а держать его шагом основного гейта значило бы гонять
+весь гейт заново на каждую правку заголовка. Ставится ВО ВСЕ репы флота: текст PR есть у любой.
 
 ```yaml
-name: pr-closes
+name: pr-text
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
     branches: [main]
 concurrency:
-  group: pr-closes-${{ github.event.pull_request.number }}
+  group: pr-text-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
-  closes:
-    uses: dippstack/ci/.github/workflows/pr-closes.yml@v1
+  text:
+    uses: dippstack/ci/.github/workflows/pr-text.yml@v1
 ```
 
 **Выкатка (deliver)** — `.github/workflows/deliver.yml@v1`, стаб `deliver.yml` в репо продукта
@@ -187,10 +187,18 @@ jobs:
   `feat(scope):` — тип читателю чата ничего не говорит, а чип в Telegram цитирует заголовок
   сквош-коммита, то есть заголовок PR. Ловит префикс conventional commits (голый тип только у слов, что областями не бывают: `feat:`,
   `fix:`, `chore:`…; `ci:`, `docs:`, `test:` — законные области, а `ci(x):` и `ci!:` — тип), заглушку
-  `task #N: slug`, меньше трёх слов, точку в конце, длиннее 160 символов (считает символы, не байты). Стоит во всех четырёх рецептах на
-  `pull_request` и красит гейт; чтобы правка заголовка перезапускала гейт, стаб продукта слушает
-  `pull_request: types: [opened, synchronize, reopened, edited]` (см. пример подключения выше). Тест: `bash checks/pr-title/tests/test.sh`.
-- **`pr-closes.yml`** + **`checks/pr-closes`** — PR, который сделал задачу, обязан её закрыть
+  `task #N: slug`, меньше трёх слов, точку в конце, длиннее 160 символов (считает символы, не
+  байты). Зовётся из лёгкого `pr-text.yml` и красит гейт; в тяжёлых рецептах его больше нет.
+  Тест: `bash checks/pr-title/tests/test.sh`.
+- **`pr-text.yml`** — лёгкий гейт на текст pull request: заголовок (`checks/pr-title`) и
+  закрывающее слово в теле (`checks/pr-closes`). Обе проверки жили шагами внутри четырёх
+  рецептов выше и уехали сюда (dippstack/ais#845): текст PR правят без коммита, поэтому гейт
+  обязан слушать `edited`, и шагом основного гейта он перезапускал бы его целиком на каждую
+  правку — замеренные прогоны потребителей 136–431 секунда, в основном очередь на одном
+  раннере орги. Условный пропуск тяжёлых шагов на `edited` отвергнут: он дал бы зелёный
+  прогон, перекрывающий предыдущий красный. Чекаута у рецепта нет — обе проверки читают текст
+  из события.
+- **`checks/pr-closes`** — PR, который сделал задачу, обязан её закрыть
   словом, которое понимает GitHub. Автозакрытие срабатывает только на английские
   `Closes` / `Fixes` / `Resolves`; русское «Закрывает #N» для GitHub обычная ссылка, поэтому
   PR зелёный, работа в main, а задача остаётся открытой молча — глазами это не ловится. В ais
