@@ -117,6 +117,14 @@ jobs:
   `.github/workflows` вызывающей репы на `ubuntu-*`, `macos-*`, `windows-*` (комментарии не
   считаются) и красит гейт. Так любой workflow флота с облачным раннером краснеет сам, без
   токенов и обхода репозиториев.
+- **`checks/pr-title`** — заголовок PR человеческим предложением, как в репозитории Claude Code
+  (dippstack/ais#788): «область: что теперь происходит» (`diff: a resumed session with edits opens
+  the pane`) или просто предложение (`Add issue template for GitHub connection problems`). Без типа
+  `feat(scope):` — тип читателю чата ничего не говорит, а чип в Telegram цитирует заголовок
+  сквош-коммита, то есть заголовок PR. Ловит префикс conventional commits, заглушку `task #N: slug`,
+  меньше трёх слов, точку в конце, длиннее 120 символов. Стоит во всех четырёх рецептах на
+  `pull_request` в режиме предупреждения (правка заголовка гейт не перезапускает, красный бы не
+  отпустил); `mode: error` — по желанию репо. Тест: `bash checks/pr-title/tests/test.sh`.
 - **`ci-node.yml`** — `pnpm install --frozen-lockfile` → `pnpm typecheck` → `pnpm lint`
   на self-hosted `home`-раннере. Входы `node-version` (22), `pnpm-version` (10.0.0).
 

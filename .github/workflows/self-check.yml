@@ -63,6 +63,11 @@ jobs:
           print(f"OK: {len(pats)} паттернов, схема валидна")
           PY
 
+      - name: pr-title — правило заголовка и shellcheck
+        run: |
+          bash checks/pr-title/tests/test.sh
+          shellcheck -S warning checks/pr-title/check.sh checks/pr-title/tests/test.sh
+
       - name: тесты движка (контр-примеры на дрейф регекспа)
         working-directory: checks/scrub-secrets
         run: |
