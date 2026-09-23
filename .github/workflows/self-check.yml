@@ -67,6 +67,10 @@ jobs:
         run: |
           bash checks/pr-title/tests/test.sh
           shellcheck -S warning checks/pr-title/check.sh checks/pr-title/tests/test.sh
+      - name: deploy-digest — счёт, чипы, пропуск без работы
+        run: |
+          bash checks/deploy-digest/tests/test.sh
+          shellcheck -S warning checks/deploy-digest/compose.sh checks/deploy-digest/tests/test.sh
 
       - name: тесты движка (контр-примеры на дрейф регекспа)
         working-directory: checks/scrub-secrets

@@ -1,0 +1,37 @@
+name: "deploy-digest"
+description: "Дайджест дня выкаток прозой (dippstack/ais#785): из JSON прогонов deliver за сутки — дата словами, репо ссылкой, сколько выкачено, красные и висящие поимённо чипами. Работы не было — пусто и skipped=true."
+inputs:
+  runs-json:  { description: "JSON-массив прогонов (gh run list --json conclusion,status,displayTitle,url,headSha,createdAt)", required: true }
+  repo:       { description: "org/repo", required: true }
+  repo-url:   { description: "URL репо", default: "" }
+  min-runs:   { description: "минимум завершённых прогонов за сутки, чтобы дайджест был", default: "1" }
+  tz:         { description: "зона читателя для даты", default: "Europe/Moscow" }
+outputs:
+  text:
+    description: "HTML дайджеста; пусто = не нужен"
+    value: ${{ steps.run.outputs.text }}
+  skipped:
+    description: "true — работы не было, дайджест пропущен"
+    value: ${{ steps.run.outputs.skipped }}
+runs:
+  using: "composite"
+  steps:
+    - id: run
+      shell: bash
+      env:
+        RUNS_JSON: ${{ inputs.runs-json }}
+        DIGEST_REPO: ${{ inputs.repo }}
+        DIGEST_REPO_URL: ${{ inputs.repo-url }}
+        DIGEST_MIN_RUNS: ${{ inputs.min-runs }}
+        DIGEST_TZ: ${{ inputs.tz }}
+      run: |
+        [ -n "$DIGEST_REPO_URL" ] || unset DIGEST_REPO_URL
+        if text="$(printf '%s' "$RUNS_JSON" | bash "${{ github.action_path }}/compose.sh")"; then
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+          { echo "text<<DIGEST_EOF"; printf '%s\n' "$text"; echo "DIGEST_EOF"; } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$text"
+        else
+          rc=$?
+          if [ "$rc" = 3 ]; then echo "работы за сутки не было — дайджест не нужен"; else echo "::warning title=deploy-digest::compose.sh rc=$rc"; fi
+          { echo "skipped=true"; echo "text="; } >> "$GITHUB_OUTPUT"
+        fi
