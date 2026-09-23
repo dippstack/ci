@@ -15,6 +15,7 @@ on:
       workflow:   { type: string, default: "deliver" }  # чьи прогоны считать
       min-runs:   { type: string, default: "1" }        # меньше завершённых прогонов за сутки — молчим
       tz:         { type: string, default: "Europe/Moscow" }
+      hour-utc:   { type: string, default: "20" }       # час расписания стаба по UTC: окно — от вчерашнего такого часа, окна стыкуются встык
 
 permissions:
   actions: read
@@ -30,7 +31,12 @@ jobs:
       REPO_URL: ${{ github.server_url }}/${{ github.repository }}
       VAULT_ENV: ${{ inputs.vault-env }}
       WORKFLOW: ${{ inputs.workflow }}
+      HOUR_UTC: ${{ inputs.hour-utc }}
     steps:
+      # own-runner грепает .github/workflows рабочего каталога — без чекаута он проверял бы пустоту.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
       - name: канон CI — только свои раннеры
         uses: dippstack/ci/checks/own-runner@main
 
@@ -47,10 +53,16 @@ jobs:
       - name: прогоны за сутки
         id: runs
         run: |
-          # Окно — последние 24 часа по UTC: «с прошлого дайджеста до этого». gh понимает диапазон дат.
-          SINCE="$(date -u -v-24H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
-          RUNS="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --created ">=$SINCE" --limit 200 \
-                   --json conclusion,status,displayTitle,url,headSha,createdAt 2>/dev/null || echo '[]')"
+          # Окно — от вчерашнего часа расписания (hour-utc) до сейчас: расписание GitHub плавает на
+          # десятки минут, и окно «последние 24 часа» то рвётся, то накладывается; якорь к часу
+          # стыкует окна встык. Считаем python'ом: date -v (BSD) и -d (GNU) на раннерах разные.
+          case "$HOUR_UTC" in ''|*[!0-9]*) echo "::error title=digest::hour-utc должен быть часом 0–23: '$HOUR_UTC'"; exit 1;; esac
+          SINCE="$(python3 -c "import datetime as d; n=d.datetime.now(d.timezone.utc); a=n.replace(hour=int('$HOUR_UTC'),minute=0,second=0,microsecond=0); a=a if a<n else a-d.timedelta(days=1); print((a-d.timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ'))")"
+          # Ошибка gh — не «работы не было»: молчание запрещено, красим джобу с текстом ошибки.
+          if ! RUNS="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --created ">=$SINCE" --limit 200 \
+                   --json conclusion,status,displayTitle,url,headSha,createdAt 2>"$RUNNER_TEMP/gh.err")"; then
+            echo "::error title=digest::gh run list не ответил: $(head -c 300 "$RUNNER_TEMP/gh.err")"; exit 1
+          fi
           echo "прогонов $WORKFLOW с $SINCE: $(printf '%s' "$RUNS" | grep -o '"url"' | wc -l | tr -d ' ')"
           { echo "json<<RUNS_EOF"; printf '%s\n' "$RUNS"; echo "RUNS_EOF"; } >> "$GITHUB_OUTPUT"
 

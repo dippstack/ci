@@ -55,11 +55,16 @@ def chip(r):
     if len(title) > 80: title = title[:79] + "…"
     return f'<a href="{html.escape(link, quote=True)}">{num}{html.escape(title)}</a>'
 
-ok  = [r for r in runs if r.get("conclusion") == "success"]
-red = [r for r in runs if r.get("conclusion") in ("failure", "timed_out", "startup_failure")]
+# Один словарь исходов: зелёные, красные, висящие; skipped — не выкатка, в счёт не входит.
 RED = ("failure", "timed_out", "startup_failure")
-tail = [r for r in runs if r.get("conclusion") != "success" and r.get("conclusion") not in RED and r.get("conclusion") != "skipped"]
-n = len(runs)
+ok   = [r for r in runs if r.get("conclusion") == "success"]
+red  = [r for r in runs if r.get("conclusion") in RED]
+tail = [r for r in runs if r.get("conclusion") not in ("success", "skipped") and r.get("conclusion") not in RED]
+n = len(ok) + len(red) + len(tail)
+if n < min_runs:
+    sys.exit(3)
+# Лимит Telegram 4096: чипов не больше CAP, остальное — «и ещё M»; красные важнее висящих.
+CAP = 12
 head = f'📋 <a href="{html.escape(repo_url, quote=True)}">{html.escape(repo)}</a>, {date_words}: '
 parts = []
 if n == len(ok):
@@ -70,8 +75,10 @@ else:
     if tail: s += f", {len(tail)} без итога"
     parts.append(s + ".")
 lines = [head + " ".join(parts)]
-for r in red:  lines.append("❌ " + chip(r))
-for r in tail: lines.append("⏳ " + chip(r))
+named = [("❌ ", r) for r in red] + [("⏳ ", r) for r in tail]
+for icon, r in named[:CAP]: lines.append(icon + chip(r))
+rest = len(named) - CAP
+if rest > 0: lines.append(f"…и ещё {rest} {plural(rest,'прогон','прогона','прогонов')} без зелёного итога — в Actions за сутки.")
 if red or tail:
     lines.append("<i>Красные и висящие — выше поимённо; зелёные уже были в ленте.</i>")
 print("\n".join(lines))

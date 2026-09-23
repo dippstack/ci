@@ -28,4 +28,10 @@ one="$(DIGEST_REPO=x/y DIGEST_DATE=2026-10-21 bash "$C" <<< '[{"conclusion":"suc
 [[ "$one" == *"21 октября: 1 выкатка за сутки, все зелёные."* ]] && ok "склонение: 1 выкатка" || bad "plural: $one"
 five="$(DIGEST_REPO=x/y DIGEST_DATE=2026-10-21 bash "$C" <<< '[{"conclusion":"failure","status":"completed","displayTitle":"a","url":"u"},{"conclusion":"failure","status":"completed","displayTitle":"b","url":"u"},{"conclusion":"failure","status":"completed","displayTitle":"c","url":"u"},{"conclusion":"failure","status":"completed","displayTitle":"d","url":"u"},{"conclusion":"failure","status":"completed","displayTitle":"e","url":"u"}]')"
 [[ "$five" == *"5 выкаток за сутки, 5 не докатились."* ]] && ok "склонение: 5 выкаток, 5 не докатились" || bad "plural5: $(printf '%s\n' "$five" | sed -n 1p)"
+# skipped не считается выкаткой; 40 красных → 12 чипов и «и ещё 28».
+sk="$(DIGEST_REPO=x/y DIGEST_DATE=2026-10-21 bash "$C" <<< '[{"conclusion":"skipped","status":"completed","displayTitle":"s","url":"u"},{"conclusion":"success","status":"completed","displayTitle":"t","url":"u"}]')"
+[[ "$sk" == *"1 выкатка за сутки, все зелёные."* ]] && ok "skipped не входит в счёт" || bad "skipped: $sk"
+many="$(python3 -c 'import json;print(json.dumps([{"conclusion":"failure","status":"completed","displayTitle":"r%d (#%d)"%(i,i),"url":"u"} for i in range(40)]))')"
+outm="$(DIGEST_REPO=x/y DIGEST_DATE=2026-10-21 bash "$C" <<< "$many")"
+[ "$(printf '%s\n' "$outm" | grep -c '^❌')" = 12 ] && printf '%s\n' "$outm" | grep -q '^…и ещё 28 прогонов' && [ "${#outm}" -lt 4096 ] && ok "40 красных → 12 чипов, «и ещё 28», меньше 4096 символов" || bad "cap: $(printf '%s\n' "$outm" | grep -c '^❌') чипов, $(printf '%s\n' "$outm" | tail -2 | head -1)"
 [ "$fail" = 0 ] && echo "deploy-digest: OK" || { echo "deploy-digest: FAIL"; exit 1; }
