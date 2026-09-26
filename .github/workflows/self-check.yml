@@ -73,6 +73,8 @@ jobs:
           python3 -m pip install -q pyyaml
           bash checks/deliver-smoke/test.sh
           shellcheck -S warning checks/deliver-smoke/test.sh
+          bash checks/deliver-paths/test.sh
+          shellcheck -S warning checks/deliver-paths/test.sh
       # Страж закрывающих слов: обе половины. Что он краснеет на потерянной задаче — половина
       # дела; что он МОЛЧИТ там, где всё в порядке, не менее важно, иначе его начнут обходить.
       # Форму самих воркфлоу не проверял никто, а флот на этом уже горел: пустое `${{ }}` в

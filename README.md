@@ -73,6 +73,14 @@ jobs:
       vault-env: /Users/imac/sandbox/yan/.vault/env/yan-bot.env   # TELEGRAM_BOT_TOKEN + TELEGRAM_DEVSUPPORT_CHAT/THREAD
 ```
 
+Точки входа продукта — входы `deploy-script` и `health-script`, пути относительно `deploy-dir`.
+По умолчанию прежние `deploy/autodeploy.sh` и `deploy/health.sh`, чтобы стабы без входов не
+сломались. Канон раскладки с 2026-09-26 — `infra/host/autodeploy.sh` и `infra/host/health.sh`
+(ais-render-vault `vision/08`, yan-app/yan-monorepo#627): продукт, переехавший на канон, передаёт
+их явно, а когда переедут все потребители, умолчание переключится на канон. Путь принимается
+только относительный, внутри клона, из букв, цифр и `. _ / -`: он уходит в строку для ssh.
+Проверка без сети — `checks/deliver-paths/test.sh`.
+
 ## Рецепты
 
 - **`ci-python.yml`** — секрет-скан (исключения ложных срабатываний — построчно в
@@ -86,7 +94,7 @@ jobs:
   работает расписание дрейфа. Токены провайдеров в рецепте не хранятся: вызывающая репа
   отдаёт свои secrets через `secrets: inherit`. На PR из форка `plan` не бежит.
 - **`deliver.yml`** — шлюз выкатки. `driver: script` — по ssh отцепленно (`nohup`) запустить
-  `deploy/autodeploy.sh` продукта и ждать `deploy/health.sh <sha>` (rc 0 доехало, 1 ещё нет,
+  скрипт автовыкатки продукта (вход `deploy-script`) и ждать health <sha> (вход `health-script`) (rc 0 доехало, 1 ещё нет,
   2 хост отверг этот SHA — красный сразу); `driver: watch` — только ждать health, когда таймер
   на узле нельзя дублировать. В Телеграм — ОДНО итоговое сообщение на выкатку (решение Егора
   2026-09-26, ais-render-vault `dev-loop/14`), за ходом выкатки смотрят в GitHub. Сообщение —
