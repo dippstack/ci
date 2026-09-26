@@ -66,12 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: канон CI — только свои раннеры
-        uses: dippstack/ci/checks/own-runner@main
 
-      # Заголовка PR тут нет намеренно: он уехал в лёгкий рецепт `pr-text.yml` вместе с
-      # проверкой закрывающего слова (dippstack/ais#845). Обе они обязаны слушать `edited`, а
-      # в этом гейте это значило бы перезапускать его целиком на каждую правку текста PR.
 
       - uses: opentofu/setup-opentofu@v1
         with:

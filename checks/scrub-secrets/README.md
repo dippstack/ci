@@ -4,7 +4,7 @@ One canonical secret-scan engine for the whole fleet. Replaces the hand-copied
 `scrub_secrets.py` in the vaults and the inline `git grep` in `ci-python.yml`.
 
 - **Commit gate** (composite action) — used as a step inside a reusable workflow
-  (`ci-python.yml` at `core+dsn-creds`, `ci-vault.yml` at `full`). Fail-closed.
+  (`ci-python.yml` and `ci-node.yml` at `core+dsn-creds`; vault pre-commit hook at `full`). Fail-closed.
 - **Pipeline CLI** (pip) — `scrub-secrets --in-place` for the ingest/render bus.
 
 ## Public / private boundary (this repo is PUBLIC)

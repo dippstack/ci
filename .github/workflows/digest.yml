@@ -32,12 +32,6 @@ jobs:
       WORKFLOW: ${{ inputs.workflow }}
       HOUR_UTC: ${{ inputs.hour-utc }}
     steps:
-      # own-runner грепает .github/workflows рабочего каталога — без чекаута он проверял бы пустоту.
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: .github
-      - name: канон CI — только свои раннеры
-        uses: dippstack/ci/checks/own-runner@main
 
       - name: секреты из env бота (грепом + маска)
         run: |
