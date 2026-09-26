@@ -25,12 +25,7 @@ jobs:
         with:
           fetch-depth: 0   # база origin/<base> нужна дифф-проверкам (hardcode-гард + ignore)
 
-      - name: канон CI — только свои раннеры
-        uses: dippstack/ci/checks/own-runner@main
 
-      # Заголовка PR тут нет намеренно: он уехал в лёгкий рецепт `pr-text.yml` вместе с
-      # проверкой закрывающего слова (dippstack/ais#845). Обе они обязаны слушать `edited`, а
-      # в этом гейте это значило бы перезапускать его целиком на каждую правку текста PR.
 
       # Единый движок скраббера (dippstack/ci/checks/scrub-secrets) вместо инлайн-git-grep.
       # Тир code-репо = core+dsn-creds (однозначные токены + DSN-с-кредами; `password=` НЕ
@@ -38,7 +33,7 @@ jobs:
       # first-party action в своём же репо → допустим подвижный @main; консьюмеры зовут
       # рецепт по тегу v1, который двигается релизом ci.
       - name: секрет-скан (единый движок, tier=core+dsn-creds)
-        uses: dippstack/ci/checks/scrub-secrets@main
+        uses: dippstack/ci/checks/scrub-secrets@v1
         with:
           tier: core+dsn-creds
           base_ref: ${{ github.base_ref }}

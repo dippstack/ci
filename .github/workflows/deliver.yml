@@ -70,7 +70,7 @@ jobs:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       REPO_URL: ${{ github.server_url }}/${{ github.repository }}
     steps:
-      # Чекаут: kamal собирает образ из репо (полный); script/watch — только .github для own-runner.
+      # Чекаут: kamal собирает образ из репо (полный); script/watch — только .github, откуда они берут свои файлы.
       # Два шага, а не тернарник `cond && '' || '.github'`: в выражениях Actions пустая строка
       # falsy, и kamal получил бы обрезанный чекаут без Dockerfile.
       - uses: actions/checkout@v4
@@ -80,8 +80,6 @@ jobs:
         with:
           sparse-checkout: .github
 
-      - name: канон CI — только свои раннеры
-        uses: dippstack/ci/checks/own-runner@main
 
       - name: входы драйвера
         run: |

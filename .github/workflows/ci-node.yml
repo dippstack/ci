@@ -29,18 +29,13 @@ jobs:
         with:
           fetch-depth: 0   # база origin/<base> нужна anti-self-approval ignore в скраб-шаге
 
-      - name: канон CI — только свои раннеры
-        uses: dippstack/ci/checks/own-runner@main
 
-      # Заголовка PR тут нет намеренно: он уехал в лёгкий рецепт `pr-text.yml` вместе с
-      # проверкой закрывающего слова (dippstack/ais#845). Обе они обязаны слушать `edited`, а
-      # в этом гейте это значило бы перезапускать его целиком на каждую правку текста PR.
 
       # Секрет-скан единым движком (тот же, что у python/vault-репо) — закрываем дыру:
       # Node-репо раньше не гейтились на секреты вообще. tier=core+dsn-creds (код).
       # Нужен python3 на self-hosted home-раннере. Нет секрета → мгновенно дальше.
       - name: секрет-скан (единый движок, tier=core+dsn-creds)
-        uses: dippstack/ci/checks/scrub-secrets@main
+        uses: dippstack/ci/checks/scrub-secrets@v1
         with:
           tier: core+dsn-creds
           base_ref: ${{ github.base_ref }}

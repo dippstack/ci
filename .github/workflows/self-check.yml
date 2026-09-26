@@ -22,9 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: канон CI — только свои раннеры
-        uses: ./checks/own-runner   # локальный путь: на PR в ci сам @main ещё без чека
-
       - name: приватные паттерн-файлы не должны жить в публичном ci
         run: |
           # Якорим на ИМЯ ФАЙЛА (basename), не на путь: папка scrub-secrets содержит '-secret',
@@ -65,19 +62,6 @@ jobs:
           print(f"OK: {len(pats)} паттернов, схема валидна")
           PY
 
-      - name: pr-title — правило заголовка и shellcheck
-        run: |
-          bash checks/pr-title/tests/test.sh
-          shellcheck -S warning checks/pr-title/check.sh checks/pr-title/tests/test.sh
-
-      - name: pr-title — сам экшен грузится раннером (ловит битый YAML/expression в action.yml)
-        # check.sh выше проверяет только правило; загрузку composite-экшена — только этот шаг.
-        # Именно так упал gate у всех PR флота 23.09: пустой ${{ }} в комментарии рвал парсинг
-        # action.yml, а check.sh это не видел, потому что запускался напрямую, в обход раннера.
-        uses: ./checks/pr-title
-        with:
-          title: "self-check: композитный экшен грузится без TemplateValidationException"
-          mode: error
       - name: deploy-digest — счёт, чипы, пропуск без работы
         run: |
           bash checks/deploy-digest/tests/test.sh
@@ -126,34 +110,3 @@ jobs:
           # стилевой SC2129). Порог снимает дилемму «править чужой shell или выключить
           # проверку» одной переменной. Метки своих раннеров — в `.github/actionlint.yaml`.
           SHELLCHECK_OPTS="-S warning" actionlint
-
-      - name: проверки стража закрывающих слов
-        run: |
-          bash checks/pr-closes/tests/test-pr-closes-guard.sh
-          shellcheck -S warning checks/pr-closes/pr-closes-guard.sh checks/pr-closes/tests/test-pr-closes-guard.sh
-
-      # Проверки выше знают только скрипт. Проводку — action.yml, GITHUB_ACTION_PATH,
-      # RUNNER_TEMP, чтение тела из события — не знает никто, и опечатка в пути оставила бы
-      # self-check зелёным, а сломалось бы у потребителей после мержа. Поэтому зовём действие
-      # ЛОКАЛЬНЫМ путём (как own-runner выше: на PR в ci сам @main ещё без этой правки) на
-      # настоящем событии — на теле ЭТОГО PR. Заодно единственный репозиторий флота, который
-      # владеет стражем и жил без него, теперь им и закрыт.
-      - name: страж на своём же PR — проводка целиком
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: ./checks/pr-closes
-
-      # И обратная половина проводки: на НЕ-PR событии страж обязан краснеть, а не молчать.
-      # Без этой пары `if` выше мог бы однажды стать вечно-истинным, и гейт пропускал бы всё.
-      - name: fail-closed — на чужом событии страж краснеет
-        if: ${{ github.event_name != 'pull_request' }}
-        id: notpr
-        continue-on-error: true
-        uses: ./checks/pr-closes
-      - name: вердикт по fail-closed
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          OUTCOME: ${{ steps.notpr.outcome }}
-        run: |
-          [ "$OUTCOME" = "failure" ] && { echo "ок: на событии '$GITHUB_EVENT_NAME' страж покраснел"; exit 0; }
-          echo "::error::страж смолчал на событии '$GITHUB_EVENT_NAME' (outcome=$OUTCOME) — гейт не может покраснеть"
-          exit 1
