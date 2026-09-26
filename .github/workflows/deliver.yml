@@ -12,16 +12,20 @@ name: deliver
 # и драйвера kamal (ни одного потребителя) больше нет.
 #
 # Два драйвера — потому что у продуктов разные реальности:
-#   script — сервис катится СВОИМ скриптом на хосте (pull-модель deploy/autodeploy.sh с гейтом
+#   script — сервис катится СВОИМ скриптом на хосте (pull-модель, скрипт автовыкатки с гейтом
 #            и откатом внутри, таймер на хосте зовёт его сам). Шлюз запускает тот же файл
 #            ОТЦЕПЛЕННО (nohup, лог на хосте) и не становится родителем деплоя: отмена джобы
 #            или моргнувший ssh не рвут гейт и откат на середине. Дальше ждёт, пока
-#            deploy/health.sh подтвердит «на хосте этот код». Это ускорение таймера, а не
+#            health подтвердит «на хосте этот код». Это ускорение таймера, а не
 #            замена: если таймер уже катит, скрипт скажет «пропуск тика», и health дождётся.
 #   watch  — ничего не запускать, только дождаться health (узел без flock: второй гейт поверх
 #            тика таймера снёс бы candidate-worktree).
-# Контракт с репо продукта для script/watch: deploy/autodeploy.sh (держит СВОЙ flock -n: второй
-# экземпляр поверх таймера выходит «пропуском», а не ждёт и не ломает) и deploy/health.sh <sha>.
+# Контракт с репо продукта для script/watch: скрипт автовыкатки (держит СВОЙ flock -n: второй
+# экземпляр поверх таймера выходит «пропуском», а не ждёт и не ломает) и health <sha>. Пути к ним
+# — входы deploy-script и health-script, относительно клона. По умолчанию прежние
+# deploy/autodeploy.sh и deploy/health.sh; канон раскладки с 2026-09-26 — infra/host/autodeploy.sh
+# и infra/host/health.sh (yan-app/yan-monorepo#627). Когда на канон переедут все потребители,
+# умолчание переключится на него, а явные входы из стабов уйдут.
 # health.sh: rc 0 = доехало (этот SHA или новее), rc 1 = ещё нет (ждём), rc 2 = хост уже
 # отверг этот SHA (флап-гард, гейт красный) — ждать нечего, красный сразу.
 # Скрипт остаётся ЕДИНСТВЕННЫМ путём выкатки (канон CI, правило 5): таймер на хосте и этот
@@ -44,6 +48,8 @@ on:
       deploy-host:    { type: string, default: "" }      # ssh-алиас хоста с раннера (home); пусто = хост и есть раннер
       deploy-dir:     { type: string, default: "" }      # живой клон продукта на хосте (~/yan)
       health-timeout: { type: string, default: "600" }   # секунд ждать зелёного health
+      deploy-script:  { type: string, default: "deploy/autodeploy.sh" } # точка входа автовыкатки, относительно deploy-dir (канон: infra/host/autodeploy.sh)
+      health-script:  { type: string, default: "deploy/health.sh" }     # точка входа health <sha>, относительно deploy-dir (канон: infra/host/health.sh)
 
 jobs:
   deliver:
@@ -57,6 +63,8 @@ jobs:
       DEPLOY_HOST: ${{ inputs.deploy-host }}
       DEPLOY_DIR: ${{ inputs.deploy-dir }}
       HEALTH_TIMEOUT: ${{ inputs.health-timeout }}
+      DEPLOY_SCRIPT: ${{ inputs.deploy-script }}
+      HEALTH_SCRIPT: ${{ inputs.health-script }}
       SHA: ${{ github.sha }}
       REPO: ${{ github.repository }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -78,6 +86,12 @@ jobs:
           # иначе вместо «health не позеленел» с хвостом лога будет безликий обрыв по timeout-minutes.
           case "$HEALTH_TIMEOUT" in ''|*[!0-9]*) echo "health-timeout должен быть числом секунд: '$HEALTH_TIMEOUT'" >&2; exit 1;; esac
           [ "$HEALTH_TIMEOUT" -le 3000 ] || { echo "health-timeout $HEALTH_TIMEOUT > 3000с — выше потолка джобы" >&2; exit 1; }
+          # Пути к точкам входа уходят в строку для ssh, поэтому только относительный путь внутри
+          # клона из безопасных символов: без «..», без ведущего «/», без пробелов и метасимволов.
+          for v in DEPLOY_SCRIPT HEALTH_SCRIPT; do
+            p="${!v}"
+            case "$p" in ''|/*|*..*|*[!A-Za-z0-9._/-]*) echo "$v: недопустимый путь '$p' (относительный путь внутри клона: буквы, цифры, . _ / -)" >&2; exit 1;; esac
+          done
           # deploy-dir может начинаться с литерала $GITHUB_WORKSPACE (в with: стаба выражение
           # github.workspace пусто — контекст reusable его не даёт): подставляем путь раннера сами.
           case "$DEPLOY_DIR" in '$GITHUB_WORKSPACE'*) DEPLOY_DIR="$GITHUB_WORKSPACE${DEPLOY_DIR#\$GITHUB_WORKSPACE}"; echo "DEPLOY_DIR=$DEPLOY_DIR" >> "$GITHUB_ENV";; esac
@@ -133,13 +147,13 @@ jobs:
       # Деплой — отцепленно: nohup + лог в $HOME/.deliver/<service>.log на хосте, ssh возвращается
       # сразу. Лог не в клоне: deploy/local у yan держит докерные тома под root, и запись туда
       # падала «Permission denied» ещё до старта скрипта (прогон 35438697941).
-      - name: deploy/autodeploy.sh на хосте (отцепленно)
+      - name: автовыкатка на хосте (отцепленно)
         if: ${{ inputs.driver == 'script' }}
         run: |
           echo "FAIL_WHAT=Не удалось запустить выкатку на хосте по ssh." >> "$GITHUB_ENV"   # health-шаг перепишет, если дойдёт
           echo "PROD_STATE=Прод не тронут." >> "$GITHUB_ENV"
           run(){ if [ -n "$DEPLOY_HOST" ]; then ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "bash -lc $(printf %q "$1")"; else bash -lc "$1"; fi; }
-          echo "→ ${DEPLOY_HOST:-локально ($(hostname -s))}: $DEPLOY_DIR/deploy/autodeploy.sh (лог: ~/.deliver/$LOG_NAME.log)"
+          echo "→ ${DEPLOY_HOST:-локально ($(hostname -s))}: $DEPLOY_DIR/$DEPLOY_SCRIPT (лог: ~/.deliver/$LOG_NAME.log)"
           # Второй экземпляр поверх таймера НЕ проверяем тут pgrep'ом: строка поиска попадала
           # в argv нашей же login-оболочки на хосте, гард срабатывал всегда, и script молча
           # вырождался в watch. Сериализация — дело самого autodeploy.sh (flock -n внутри, часть
@@ -149,11 +163,11 @@ jobs:
           SCRIPT="$(printf '%s\n' \
             "mkdir -p ~/.deliver" \
             "cd $DEPLOY_DIR || exit 1" \
-            "nohup bash deploy/autodeploy.sh >> ~/.deliver/$LOG_NAME.log 2>&1 </dev/null &" \
+            "nohup bash $DEPLOY_SCRIPT >> ~/.deliver/$LOG_NAME.log 2>&1 </dev/null &" \
             'echo "autodeploy запущен (pid $!)"')"
           run "$SCRIPT"
 
-      - name: health на хосте (deploy/health.sh ${{ github.sha }})
+      - name: health на хосте (${{ inputs.health-script }} ${{ github.sha }})
         if: ${{ inputs.driver == 'script' || inputs.driver == 'watch' }}
         run: |
           run(){ if [ -n "$DEPLOY_HOST" ]; then ssh -n -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "bash -lc $(printf %q "$1")"; else bash -lc "$1"; fi; }
@@ -161,7 +175,7 @@ jobs:
           # Шаг бежит под bash -e: провал run в простой команде завершил бы шаг на первой же
           # попытке (так упали прогоны 35438697941 и 35438702010) — берём rc через if.
           while :; do
-            if run "cd $DEPLOY_DIR && bash deploy/health.sh $SHA"; then rc=0; else rc=$?; fi
+            if run "cd $DEPLOY_DIR && bash $HEALTH_SCRIPT $SHA"; then rc=0; else rc=$?; fi
             case $rc in
               0) echo "✅ health: $SERVICE на $SHORT_SHA"; exit 0 ;;
               2) echo "FAIL_WHAT=Хост отверг коммит: проверка на хосте красная." >> "$GITHUB_ENV"
