@@ -1,10 +1,10 @@
 name: deliver-selftest
-# Живая проверка красного пути шлюза (dippstack/ais#784): тот же deliver.yml, что зовут продукты,
-# только фикстура вместо продукта — deploy/autodeploy.sh пишет журнал с ошибкой и ANSI-цветами,
-# deploy/health.sh отвечает 2 («хост отверг»). В «AI Sanbox» приходит 🚀 и следом ❌ с причиной
-# от модели, хвостом и, если брейн ais узнал сбой, похожим случаем. Проверяет то, чего не
-# проверить стабами: PATH раннера, claude и токен на imac, скачивание действия explain-failure,
-# Телеграм. Только руками (workflow_dispatch): гонять после мержа в main и до переноса тега v1.
+# Живая проверка шлюза выкатки: тот же deliver.yml, что зовут продукты, только фикстуры вместо
+# продукта. red — deploy/autodeploy.sh пишет журнал с ошибкой и ANSI-цветами, deploy/health.sh
+# отвечает 2 («хост отверг»): в «AI Sanbox» приходит одно ❌ со звуком, причиной и хвостом.
+# green — health.sh сразу 0: приходит одно ✅ без звука. Проверяет то, чего не проверить
+# стабами: PATH раннера и Телеграм. Только руками (workflow_dispatch): гонять с ветки до мержа
+# и после мержа до переноса тега v1. Логика сообщения без сети — checks/deliver-smoke/test.sh.
 on:
   workflow_dispatch:
 jobs:
@@ -15,5 +15,14 @@ jobs:
       driver: script
       runner: imac
       deploy-dir: $GITHUB_WORKSPACE/.github/deliver-selftest   # литерал: github.workspace в with: reusable пуст, шлюз подставит сам
+      health-timeout: "60"
+      vault-env: /Users/imac/sandbox/ais/.vault/env/ais-bot.env
+  green:
+    uses: ./.github/workflows/deliver.yml
+    with:
+      service: deliver-selftest-green
+      driver: script
+      runner: imac
+      deploy-dir: $GITHUB_WORKSPACE/.github/deliver-selftest-green
       health-timeout: "60"
       vault-env: /Users/imac/sandbox/ais/.vault/env/ais-bot.env
