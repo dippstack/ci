@@ -4,7 +4,7 @@ name: ci-node
 #   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-node.yml@v1 } }
 # Лёгкий и частый (каждый PR) → на self-hosted home-раннере (не жжём GitHub-hosted минуты).
 # Раннер резолвится в контуре ВЫЗЫВАЮЩЕЙ репы (у yan свой home-runner, у bali свой).
-# Тяжёлое (build/Expo/нативка) тут НЕ гейтим. Менять гейт — ТОЛЬКО здесь.
+# Рецепт ставит инструменты и сканирует секреты; проверки — в infra/ci/gate.sh ci репы.
 on:
   workflow_call:
     inputs:
@@ -60,13 +60,9 @@ jobs:
       # (флаки линковка стора) — один повтор гасит транзиент, не маскируя реальный провал.
       - name: pnpm install (--frozen-lockfile, +1 ретрай на флаки-краш воркера)
         run: pnpm install --frozen-lockfile || { echo "::warning::pnpm install упал — ретрай"; pnpm install --frozen-lockfile; }
-      - run: pnpm typecheck
-      - run: pnpm lint
 
-      # Тесты. `--if-present`: репа без скрипта `test` проходит молча, репа со
-      # скриптом обязана быть зелёной. До этого шага гейт проверял только код —
-      # что он ВАЛИДЕН, но не что он РАБОТАЕТ; поведение доживало до человека.
-      # Тяжёлое (симулятор, нативка, сквозные сценарии) сюда по-прежнему не
-      # заезжает: у него своя машина и свой поток в репе.
-      - name: тесты (если репа их объявила)
-        run: pnpm run --if-present test
+      # Что проверять, решает репа: infra/ci/gate.sh ci (typecheck, lint, тесты и что ещё
+      # объявлено). Тот же скрипт зовёт pre-push в режиме fast — стол и CI не расходятся.
+      # Тяжёлое (симулятор, нативка, сквозные сценарии) сюда не заезжает.
+      - name: ворота репы (infra/ci/gate.sh ci)
+        run: bash infra/ci/gate.sh ci

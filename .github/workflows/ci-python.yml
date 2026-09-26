@@ -2,8 +2,7 @@ name: ci-python
 # Reusable CI-гейт флота для Python/shell репо. ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
 # Зовётся тонким стабом из репы по подвижному тегу v1 (канон CI 2026-09-19):
 #   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-python.yml@v1 } }
-# Шаги гардятся на наличие файла/цели → один рецепт покрывает репы с мелкими отличиями
-# (у одной есть scripts/check-paths.sh, у другой — make verify). Менять гейт — ТОЛЬКО здесь.
+# Рецепт ставит инструменты и сканирует секреты; проверки — в infra/ci/gate.sh ci репы.
 on:
   workflow_call:
     inputs:
@@ -38,63 +37,21 @@ jobs:
           tier: core+dsn-creds
           base_ref: ${{ github.base_ref }}
 
-      - name: ruff — синтакс-ошибки Python (E9)
-        run: pipx run ruff check --select E9 --output-format=github .
-
-      - name: shellcheck — shell-скрипты (severity error; zsh-скрипты пропускаем)
+      # Закреплённый shellcheck для ворот. Раннер home rootless (sudo нет), поэтому бинарь
+      # по версии и sha256 кладём в ~/.local/bin; уже стоит — шаг ничего не делает.
+      - name: shellcheck на раннер
         run: |
-          mapfile -t all < <(git ls-files '*.sh')
-          sh=()
-          for f in "${all[@]}"; do
-            # Линтер умеет только sh/bash/dash/ksh; zsh-шебанг → SC1071 (error) и роняет
-            # весь гейт. zsh-скрипты линтить нечем — пропускаем их явно. (Слово «shellcheck»
-            # в начале строки комментария не писать: он читает такую строку как свою
-            # директиву и падает на ней — SC1072/SC1073.)
-            if head -1 "$f" | grep -qE '^#!.*[[:space:]/]zsh([[:space:]]|$)'; then
-              echo "skip (zsh, shellcheck не поддерживает): $f"
-            else
-              sh+=("$f")
-            fi
-          done
-          if [ ${#sh[@]} -gt 0 ]; then
-            if ! command -v shellcheck >/dev/null 2>&1; then
-              if sudo -n true 2>/dev/null; then
-                sudo apt-get update -q && sudo apt-get install -y -q shellcheck
-              else
-                # Часть флота (self-hosted раннер home) без sudo вообще —
-                # rootless-контур сознательно (ais canon, 2026-09-08). Пин по
-                # версии+sha256, тот же метод, что wt в ais/.github/workflows/sh-gate.yml.
-                v=0.10.0
-                url="https://github.com/koalaman/shellcheck/releases/download/v${v}/shellcheck-v${v}.linux.x86_64.tar.xz"
-                sha="6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87"
-                curl -fsSL -o /tmp/shellcheck.tar.xz "$url"
-                echo "${sha}  /tmp/shellcheck.tar.xz" | sha256sum -c -
-                tar -xJf /tmp/shellcheck.tar.xz -C /tmp
-                mkdir -p "$HOME/.local/bin"
-                install -m 755 "/tmp/shellcheck-v${v}/shellcheck" "$HOME/.local/bin/shellcheck"
-                echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-                export PATH="$HOME/.local/bin:$PATH"
-              fi
-            fi
-            shellcheck -S error "${sh[@]}"
-          else
-            echo "shell-скриптов для shellcheck нет — пропуск"
-          fi
+          mkdir -p "$HOME/.local/bin"; echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          v=0.10.0
+          "$HOME/.local/bin/shellcheck" --version 2>/dev/null | grep -q "version: $v" && exit 0
+          url="https://github.com/koalaman/shellcheck/releases/download/v${v}/shellcheck-v${v}.linux.x86_64.tar.xz"
+          sha="6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87"
+          curl -fsSL -o "$RUNNER_TEMP/sc.tar.xz" "$url"
+          echo "${sha}  $RUNNER_TEMP/sc.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/sc.tar.xz" -C "$RUNNER_TEMP"
+          install -m 755 "$RUNNER_TEMP/shellcheck-v${v}/shellcheck" "$HOME/.local/bin/shellcheck"
 
-      - name: hardcode-пути (если репа имеет гард scripts/check-paths.sh)
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          if [ -f scripts/check-paths.sh ] && [ -n "${BASE_REF:-}" ]; then
-            bash scripts/check-paths.sh --new "origin/$BASE_REF"
-          else
-            echo "check-paths.sh нет или запуск не из PR — пропуск"
-          fi
-
-      - name: proof harness (если репа имеет цель make verify)
-        run: |
-          if [ -f Makefile ] && grep -qE '^verify:' Makefile; then
-            make verify
-          else
-            echo "make verify нет — пропуск"
-          fi
+      # Что проверять, решает репа: infra/ci/gate.sh ci (ruff, shellcheck, hardcode-гард,
+      # make verify — у каждой своё). pre-push зовёт тот же скрипт в режиме fast.
+      - name: ворота репы (infra/ci/gate.sh ci)
+        run: bash infra/ci/gate.sh ci
