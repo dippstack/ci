@@ -46,6 +46,10 @@ on:
         required: false
       CLOUDFLARE_API_TOKEN:
         required: false
+      # Адрес ведомости для backend "pg" (postgres://…). Нужен стекам, у которых state лежит в
+      # Postgres; раннер ходит к нему как к локальному, строка в секрете вызывающей репы.
+      PG_CONN_STR:
+        required: false
 
 permissions:
   contents: read   # least privilege: гейту нужен только read исходника
@@ -126,6 +130,7 @@ jobs:
     env:
       TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
       TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      PG_CONN_STR: ${{ secrets.PG_CONN_STR }}
       TF_IN_AUTOMATION: "1"
     steps:
       - uses: actions/checkout@v4
@@ -133,6 +138,10 @@ jobs:
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ inputs.tofu-version }}
+          # Без обёртки: она ловит код выхода tofu и при 2 («есть дифф») сама завершается с 0.
+          # Шаг plan берёт код через PIPESTATUS, видел 0 вместо 2, и дрейф не краснел никогда
+          # (dippcloud: «создать 19 записей» неделями шло зелёным).
+          tofu_wrapper: false
 
       - name: init
         working-directory: ${{ matrix.module }}
