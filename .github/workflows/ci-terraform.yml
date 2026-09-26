@@ -2,10 +2,10 @@ name: ci-terraform
 # Reusable CI-гейт флота для инфраструктурного кода (OpenTofu/Terraform). ЕДИНЫЙ ИСТОЧНИК — dippstack/ci.
 # Зовётся тонким стабом из репы (dippcloud):
 #   jobs: { ci: { uses: dippstack/ci/.github/workflows/ci-terraform.yml@v1,
-#                 with: { modules: '["modules/x", "live/home/y"]', plan-modules: '["live/home/y"]' },
+#                 with: { plan-modules: '["live/home/y"]' },
 #                 secrets: inherit } }
-# Два джоба. validate — без кредов и без сети к облаку: fmt → init -backend=false → validate →
-# tflint → trivy config → tofu test (если есть tests/). plan — только plan, НИКОГДА apply:
+# Два джоба. validate — ставит tofu, tflint, trivy и зовёт infra/ci/gate.sh ci репы (без кредов;
+# список модулей живёт в воротах). plan — только plan, НИКОГДА apply:
 # читает state, показывает дифф в summary; на расписании с fail-on-drift красит расхождение
 # инфры с git. Токены облаков живут в secrets вызывающей репы (secrets: inherit), в рецепте
 # их нет. Раннер свой, home (правило 1 канона CI). Менять гейт — ТОЛЬКО здесь.
@@ -17,11 +17,6 @@ on:
         type: string
         required: false
         default: home
-      modules:
-        description: "JSON-список каталогов для validate (fmt/validate/tflint/trivy/test). Пусто — джоб пропускается."
-        type: string
-        required: false
-        default: "[]"
       plan-modules:
         description: "JSON-список live-стеков для plan (без apply). Пусто — джоб пропускается."
         type: string
@@ -40,6 +35,10 @@ on:
         type: string
         required: false
         default: "v0.64.0"
+      trivy-version:
+        type: string
+        required: false
+        default: "v0.74.0"
     secrets:
       # Провайдерные токены вызывающей репы — в рецепте не хранятся, приходят через secrets: inherit.
       DO_TOKEN:
@@ -55,63 +54,33 @@ permissions:
   contents: read   # least privilege: гейту нужен только read исходника
 
 jobs:
+  # Ворота репы без кредов: fmt, validate, tflint, trivy, tofu test по её списку модулей и
+  # что ещё она объявила (dippcloud — тесты хостов). Рецепт только ставит инструменты.
+  # На расписании дрейфа (fail-on-drift) не бежит: там вопрос один — разошлась ли инфра с git.
   validate:
-    if: inputs.modules != '[]'
+    if: ${{ !inputs.fail-on-drift }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        module: ${{ fromJSON(inputs.modules) }}
     steps:
       - uses: actions/checkout@v4
-
-
+        with:
+          fetch-depth: 0
 
       - uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: ${{ inputs.tofu-version }}
-
-      - name: fmt check
-        working-directory: ${{ matrix.module }}
-        run: tofu fmt -check -recursive
-
-      - name: init (без backend и без кредов — для validate достаточно)
-        working-directory: ${{ matrix.module }}
-        run: tofu init -backend=false -input=false
-
-      - name: validate
-        working-directory: ${{ matrix.module }}
-        run: tofu validate
+          tofu_wrapper: false
 
       - uses: terraform-linters/setup-tflint@v4
         with:
           tflint_version: ${{ inputs.tflint-version }}
 
-      - name: tflint (конфиг .tflint.hcl из корня репы, если есть)
-        working-directory: ${{ matrix.module }}
-        run: |
-          cfg="${GITHUB_WORKSPACE}/.tflint.hcl"
-          if [ -f "$cfg" ]; then
-            tflint --init --config="$cfg"
-            tflint --config="$cfg"
-          else
-            tflint --init
-            tflint
-          fi
-
-      - name: trivy config scan (CRITICAL,HIGH)
-        uses: aquasecurity/trivy-action@v0.36.0
+      - uses: aquasecurity/setup-trivy@v0.3.1
         with:
-          scan-type: config
-          scan-ref: ${{ matrix.module }}
-          severity: CRITICAL,HIGH
-          exit-code: 1
+          version: ${{ inputs.trivy-version }}
 
-      - name: tofu test (mock provider, если есть tests/)
-        working-directory: ${{ matrix.module }}
-        run: |
-          if [ -d tests ]; then tofu test; else echo "нет tests/ — live-стек, тестируется модуль, не он"; fi
+      - name: ворота репы (infra/ci/gate.sh ci)
+        run: bash infra/ci/gate.sh ci
 
   # Только plan, никогда apply. На PR из форка джоб не бежит: секреты форку не даются.
   plan:

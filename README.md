@@ -3,8 +3,14 @@
 Публичный репозиторий с **reusable-workflow'ами** для CI всех проектов флота
 (ais, marketplace, yan, bali). Публичный намеренно: reusable-workflow из приватной
 репы нельзя звать через границу организации на free-плане, а публичный — можно из
-любой репы любой орги. Здесь **только рецепты проверок** (линт/синтакс/секрет-скан) —
-ни кода продукта, ни данных, ни секретов.
+любой репы любой орги. Здесь **только рецепты**: поставить инструменты, просканировать
+секреты, позвать ворота репы — ни кода продукта, ни данных, ни секретов.
+
+**Что проверять, решает репа, а не рецепт.** У каждой репы с кодом есть `infra/ci/gate.sh`
+с двумя режимами: `fast` зовёт pre-push (хук ставит `apply.sh` из ais `@infra/agent-setup`),
+`ci` зовёт рецепт. Один скрипт на стол и на CI — вердикты не расходятся, а красный в CI
+повторяется на столе одной командой `bash infra/ci/gate.sh ci` (решение Егора 2026-09-26,
+ais-render-vault `dev-loop/14`).
 
 ## Зачем
 
@@ -37,15 +43,15 @@ jobs:
 прямо в main, без PR и CI (решение 2026-09-26, ais-render-vault `vault/architecture/dev-loop/14`).
 Секреты в нём ловит хук до коммита из ais `@infra/agent-setup`, тем же движком `scrub-secrets`.
 
-**Инфраструктура (OpenTofu/Terraform)** — `ci-terraform.yml@v1`. Модули и live-стеки
-передаются JSON-списками, токены облаков приходят из secrets вызывающей репы:
+**Инфраструктура (OpenTofu/Terraform)** — `ci-terraform.yml@v1`. Список модулей для проверки
+живёт в `infra/ci/gate.sh` репы; стеки для `plan` передаются JSON-списком, токены облаков
+приходят из secrets вызывающей репы:
 
 ```yaml
 jobs:
   ci:
     uses: dippstack/ci/.github/workflows/ci-terraform.yml@v1
     with:
-      modules: '["modules/vps-with-firewall", "live/home/vpn"]'
       plan-modules: '["live/home/vpn"]'
     secrets: inherit
 ```
@@ -69,15 +75,12 @@ jobs:
 
 ## Рецепты
 
-- **`ci-python.yml`** — секрет-скан (regex по трекаемым; исключения ложных
-  срабатываний — построчно в `.github/secret-scan-ignore` вызывающей репы) → `ruff --select E9`
-  (синтакс-ошибки Python) → `shellcheck -S error` (если есть `*.sh`) → `scripts/check-paths.sh`
-  (если есть, hardcode-гард) → `make verify` (если есть цель). Раннер свой `home`
-  (вход `runner` для оверрайда; GitHub-hosted не используем). Шаги гардятся на наличие → один рецепт покрывает репы
-  с мелкими отличиями.
-- **`ci-terraform.yml`** — два джоба на раннере `home`. `validate` (вход `modules`): `tofu fmt -check`
-  → `init -backend=false` → `validate` → `tflint` (конфиг `.tflint.hcl` из корня) → `trivy config`
-  (CRITICAL,HIGH) → `tofu test` (если есть `tests/`). Без кредов и без сети к облаку. `plan`
+- **`ci-python.yml`** — секрет-скан (исключения ложных срабатываний — построчно в
+  `.github/secret-scan-ignore` вызывающей репы) → закреплённый `shellcheck` на раннер →
+  `infra/ci/gate.sh ci`. Раннер свой `home` (вход `runner` для оверрайда).
+- **`ci-terraform.yml`** — два джоба на раннере `home`. `validate` ставит `tofu`, `tflint`,
+  `trivy` (входы версий) и зовёт `infra/ci/gate.sh ci`; без кредов и без сети к облаку, на
+  расписании дрейфа не бежит. `plan`
   (вход `plan-modules`): `tofu init` → `tofu plan -detailed-exitcode`, **никогда apply**; дифф
   в summary прогона. С `fail-on-drift: true` расхождение state с кодом красит джоб — так
   работает расписание дрейфа. Токены провайдеров в рецепте не хранятся: вызывающая репа
@@ -105,7 +108,7 @@ jobs:
   сняты 2026-09-26 решением Егора: за месяц только стилевые красные, ни одного дефекта, а
   23 сентября битая строка в `checks/pr-title` уронила потребителей. Правило английского
   `Closes #N` живёт в ядре инструкций агентов.
-- **`ci-node.yml`** — `pnpm install --frozen-lockfile` → `pnpm typecheck` → `pnpm lint`
+- **`ci-node.yml`** — секрет-скан → `pnpm install --frozen-lockfile` → `infra/ci/gate.sh ci`
   на self-hosted `home`-раннере. Входы `node-version` (22), `pnpm-version` (10.0.0).
 
 ## Когда сюда вообще стоит приходить
