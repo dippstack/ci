@@ -1,4 +1,0 @@
-[
- {"conclusion":"success","status":"completed","displayTitle":"один зелёный (#1)","url":"https://github.com/x/y/actions/runs/1","headSha":"a","createdAt":"2026-10-10T08:00:00Z"},
- {"conclusion":"success","status":"completed","displayTitle":"второй зелёный (#2)","url":"https://github.com/x/y/actions/runs/2","headSha":"b","createdAt":"2026-10-10T09:00:00Z"}
-]
