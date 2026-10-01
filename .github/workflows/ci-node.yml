@@ -16,6 +16,12 @@ on:
         type: string
         required: false
         default: "10.0.0"
+    secrets:
+      # Необязательный deploy key только на чтение. Нужен, когда lockfile тянет
+      # приватную git-зависимость. Пустой — шаг ничего не делает, остальные репы
+      # флота не задеты. Вызывающий передаёт свой секрет явно.
+      git_ssh_private_key:
+        required: false
 
 permissions:
   contents: read   # least privilege: гейту нужен только read исходника
@@ -55,6 +61,30 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
+
+      # До pnpm install. frozen-lockfile клонирует git+ssh зависимости этим ключом,
+      # а не тем, что лежит в домашнем каталоге раннера. Файл ключа — в RUNNER_TEMP:
+      # домашний каталог self-hosted раннера переживает прогоны, временный — нет.
+      # GIT_SSH_COMMAND действует на следующие шаги джоба и не пишет git config --global.
+      - name: ключ на чтение приватных git-зависимостей
+        env:
+          GIT_SSH_PRIVATE_KEY: ${{ secrets.git_ssh_private_key }}
+        run: |
+          if [ -z "$GIT_SSH_PRIVATE_KEY" ]; then
+            echo "секрет не задан — приватных git-зависимостей по ключу репы нет"
+            exit 0
+          fi
+          umask 077
+          key_file="$RUNNER_TEMP/git-deps-key"
+          known="$RUNNER_TEMP/git-deps-known-hosts"
+          printf '%s\n' "$GIT_SSH_PRIVATE_KEY" > "$key_file"
+          # Публичный host key GitHub (ed25519), docs.github.com SSH key fingerprints.
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$known"
+          {
+            echo "GIT_SSH_COMMAND<<EOF"
+            echo "ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
 
       # ретрай: pnpm-воркер изредка падает 'exited with code 1' на self-hosted
       # (флаки линковка стора) — один повтор гасит транзиент, не маскируя реальный провал.
