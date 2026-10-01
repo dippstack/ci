@@ -54,6 +54,7 @@ on:
       argocd-app:         { type: string, default: "" }
       argocd-namespace:   { type: string, default: "" }
       argocd-deployment:  { type: string, default: "" }
+      argocd-kustomization: { type: string, default: "" } # путь к kustomization.yaml: newTag образа (≠ SHA коммита «тег образа»)
       kubeconfig:         { type: string, default: "" }  # на раннере, напр. /home/ghrunner/.kube/dippcloud-ci.yaml
       health-env-file:    { type: string, default: "" }  # grep API_URL= (infra/dev.env)
 
@@ -75,6 +76,7 @@ jobs:
       ARGOCD_APP: ${{ inputs.argocd-app }}
       ARGOCD_NAMESPACE: ${{ inputs.argocd-namespace }}
       ARGOCD_DEPLOYMENT: ${{ inputs.argocd-deployment }}
+      ARGOCD_KUSTOMIZATION: ${{ inputs.argocd-kustomization }}
       KUBECONFIG_PATH: ${{ inputs.kubeconfig }}
       HEALTH_ENV_FILE: ${{ inputs.health-env-file }}
       REPO: ${{ github.repository }}
@@ -189,8 +191,25 @@ jobs:
           echo "PROD_STATE=Откат: git revert коммита с тегом образа в kustomization, Argo подхватит." >> "$GITHUB_ENV"
           API_URL="$(grep -m1 '^API_URL=' "$HEALTH_ENV_FILE" | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^["'"'"']//; s/["'"'"']$//')"
           [ -n "$API_URL" ] || { echo "нет API_URL в $HEALTH_ENV_FILE" >&2; exit 1; }
+          IMAGE_TAG="$SHORT_SHA"
+          if [ -n "$ARGOCD_KUSTOMIZATION" ]; then
+            case "$ARGOCD_KUSTOMIZATION" in ''|/*|*..*|*[!A-Za-z0-9._/-]*) echo "argocd-kustomization: недопустимый путь" >&2; exit 1;; esac
+            git fetch --depth=1 origin main
+            KUST="$(git show "origin/main:$ARGOCD_KUSTOMIZATION")" \
+              || { echo "не прочитал origin/main:$ARGOCD_KUSTOMIZATION" >&2; exit 1; }
+            IMAGE_TAG="$(printf '%s' "$KUST" | python3 -c '
+import re, sys
+deploy = sys.argv[1]
+text = sys.stdin.read()
+m = re.search(rf"name: {re.escape(deploy)}\n(?:.*\n){{0,6}}?    newTag: (\S+)", text)
+if not m:
+    raise SystemExit("newTag не найден для " + deploy)
+print(m.group(1))
+' "$ARGOCD_DEPLOYMENT")" || { echo "newTag не разобран в $ARGOCD_KUSTOMIZATION" >&2; exit 1; }
+            echo "образ из kustomization: $IMAGE_TAG (коммит $SHORT_SHA)"
+          fi
           bash _dipp-ci/scripts/argocd-deliver-wait.sh \
-            "$ARGOCD_APP" "$ARGOCD_NAMESPACE" "$ARGOCD_DEPLOYMENT" "$SHORT_SHA" \
+            "$ARGOCD_APP" "$ARGOCD_NAMESPACE" "$ARGOCD_DEPLOYMENT" "$IMAGE_TAG" \
             "$HEALTH_TIMEOUT" "$KUBECONFIG_PATH" "$API_URL"
 
       - name: автовыкатка на хосте (отцепленно)
