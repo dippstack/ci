@@ -102,7 +102,9 @@ jobs:
           repository: dippstack/ci
           ref: main
           path: _dipp-ci
-          sparse-checkout: scripts/argocd-deliver-wait.sh
+          sparse-checkout: |
+            scripts/argocd-deliver-wait.sh
+            scripts/argocd-kustomization-tag.sh
 
       - name: входы драйвера
         run: |
@@ -197,15 +199,8 @@ jobs:
             git fetch --depth=1 origin main
             KUST="$(git show "origin/main:$ARGOCD_KUSTOMIZATION")" \
               || { echo "не прочитал origin/main:$ARGOCD_KUSTOMIZATION" >&2; exit 1; }
-            IMAGE_TAG="$(printf '%s' "$KUST" | python3 -c '
-import re, sys
-deploy = sys.argv[1]
-text = sys.stdin.read()
-m = re.search(rf"name: {re.escape(deploy)}\n(?:.*\n){{0,6}}?    newTag: (\S+)", text)
-if not m:
-    raise SystemExit("newTag не найден для " + deploy)
-print(m.group(1))
-' "$ARGOCD_DEPLOYMENT")" || { echo "newTag не разобран в $ARGOCD_KUSTOMIZATION" >&2; exit 1; }
+            IMAGE_TAG="$(printf '%s' "$KUST" | bash _dipp-ci/scripts/argocd-kustomization-tag.sh "$ARGOCD_DEPLOYMENT")" \
+              || { echo "newTag не разобран в $ARGOCD_KUSTOMIZATION" >&2; exit 1; }
             echo "образ из kustomization: $IMAGE_TAG (коммит $SHORT_SHA)"
           fi
           bash _dipp-ci/scripts/argocd-deliver-wait.sh \
