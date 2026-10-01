@@ -13,19 +13,19 @@ health_base="${HEALTH_BASE%/}"
 deadline=$(( $(date +%s) + TIMEOUT ))
 
 tag_from_app() {
-  local imgs tag img
-  imgs="$(kubectl -n argocd get application "$APP" -o jsonpath='{range .status.summary.images[*]}{.}{"\n"}{end}' 2>/dev/null || true)"
-  tag=""
-  while IFS= read -r img; do
-    [ -n "$img" ] || continue
-    case "$img" in
-      *"/${DEPLOY}:"*) tag="${img##*:}"; break ;;
-    esac
-  done <<< "$imgs"
-  if [ -z "$tag" ]; then
-    img="$(kubectl -n "$NS" get deploy "$DEPLOY" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
-    tag="${img##*:}"
+  local tag img raw
+  raw="$(kubectl -n argocd get application "$APP" -o json 2>/dev/null || true)"
+  if [ -n "$raw" ]; then
+    tag="$(printf '%s' "$raw" | jq -r --arg d "$DEPLOY" '
+      (.status.summary.images // empty)
+      | if type == "array" then .[] elif type == "string" then . else empty end
+      | select(type == "string" and test("/" + $d + ":"))
+      | split(":")[-1]
+    ' 2>/dev/null | head -1)"
+    [ -n "$tag" ] && [ "$tag" != null ] && { printf '%s' "$tag"; return; }
   fi
+  img="$(kubectl -n "$NS" get deploy "$DEPLOY" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+  tag="${img##*:}"
   printf '%s' "$tag"
 }
 
