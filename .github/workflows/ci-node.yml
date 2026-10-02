@@ -85,6 +85,8 @@ jobs:
             echo "ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$known"
             echo "EOF"
           } >> "$GITHUB_ENV"
+          # pnpm часто фиксирует git+https в lockfile — без insteadOf ключ не участвует.
+          git config --global url."ssh://git@github.com/".insteadOf "https://github.com/"
 
       # ретрай: pnpm-воркер изредка падает 'exited with code 1' на self-hosted
       # (флаки линковка стора) — один повтор гасит транзиент, не маскируя реальный провал.
