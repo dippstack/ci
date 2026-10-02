@@ -31,6 +31,11 @@ jobs:
     runs-on: [self-hosted, home]
     timeout-minutes: 20
     steps:
+      # После dippstack/ci#57 на home мог остаться global insteadOf всего github.com в
+      # ~/.gitconfig — checkout своей репы тогда падает на ssh без ключа.
+      - name: снять битый global insteadOf на home-раннере
+        run: git config --global --remove-section url.ssh://git@github.com/ 2>/dev/null || true
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # база origin/<base> нужна anti-self-approval ignore в скраб-шаге
