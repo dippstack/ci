@@ -51,7 +51,7 @@ jobs:
           tier: core+dsn-creds
           base_ref: ${{ github.base_ref }}
 
-      # pnpm ДО setup-node — иначе cache: pnpm не найдёт менеджер.
+      # pnpm устанавливается отдельно от Node; пакетный store не возим через GitHub cache.
       #
       # dest в runner.temp, а НЕ в ~/setup-pnpm по умолчанию. На self-hosted раннере
       # домашняя директория переживает прогоны: внутри ~/setup-pnpm оседает стор от
@@ -65,7 +65,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
-          cache: pnpm
+          # Self-hosted runner: remote pnpm-store restore is opt-in after measurement.
 
       # До pnpm install. frozen-lockfile клонирует git+ssh зависимости этим ключом,
       # а не тем, что лежит в домашнем каталоге раннера. Файл ключа — в RUNNER_TEMP:
@@ -102,7 +102,7 @@ jobs:
       # ретрай: pnpm-воркер изредка падает 'exited with code 1' на self-hosted
       # (флаки линковка стора) — один повтор гасит транзиент, не маскируя реальный провал.
       - name: pnpm install (--frozen-lockfile, +1 ретрай на флаки-краш воркера)
-        run: pnpm install --frozen-lockfile || { echo "::warning::pnpm install упал — ретрай"; pnpm install --frozen-lockfile; }
+        run: pnpm install --frozen-lockfile --prefer-offline || { echo "::warning::pnpm install упал — ретрай"; pnpm install --frozen-lockfile --prefer-offline; }
 
       # Что проверять, решает репа: infra/ci/gate.sh ci (typecheck, lint, тесты и что ещё
       # объявлено). Тот же скрипт зовёт pre-push в режиме fast — стол и CI не расходятся.
