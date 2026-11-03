@@ -117,7 +117,7 @@ jobs:
   23 сентября битая строка в `checks/pr-title` уронила потребителей. Правило английского
   `Closes #N` живёт в ядре инструкций агентов.
 - **`ci-node.yml`** — секрет-скан → `pnpm install --frozen-lockfile` → `infra/ci/gate.sh ci`
-  на self-hosted `home`-раннере. Входы `node-version` (22), `pnpm-version` (10.0.0).
+  на self-hosted `home`-раннере. Входы `node-version` (24), `pnpm-version` (10.0.0).
 
 ## Стандарт скорости и кэширования CI
 
