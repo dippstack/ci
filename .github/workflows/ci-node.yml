@@ -11,7 +11,7 @@ on:
       node-version:
         type: string
         required: false
-        default: "22"
+        default: "24"
       pnpm-version:
         type: string
         required: false
